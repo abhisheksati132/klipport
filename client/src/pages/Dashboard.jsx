@@ -562,10 +562,10 @@ export default function Dashboard() {
   );
 
   return (
-    <div className="flex flex-col lg:flex-row min-h-screen w-full max-w-full bg-dark-bg text-gray-200 overflow-x-hidden">
+    <div className="flex flex-col xl:flex-row min-h-screen w-full max-w-full bg-dark-bg text-gray-200 overflow-x-hidden">
       
       {/* Mobile Top Navigation Header */}
-      <header className="lg:hidden flex items-center justify-between p-4 bg-white/[0.01] border-b border-white/5 z-40">
+      <header className="xl:hidden flex items-center justify-between p-4 bg-white/[0.01] border-b border-white/5 z-40">
         <div className="flex items-center gap-2.5">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-500">
             <Clipboard className="h-4 w-4" />
@@ -581,13 +581,13 @@ export default function Dashboard() {
       </header>
 
       {/* Desktop Sidebar (hidden on mobile) */}
-      <aside className="hidden lg:flex w-64 border-r border-white/5 bg-white/[0.01] p-6 flex-col justify-between shrink-0">
+      <aside className="hidden xl:flex w-64 border-r border-white/5 bg-white/[0.01] p-6 flex-col justify-between shrink-0">
         <SidebarContent />
       </aside>
 
       {/* Mobile Drawer Overlay */}
       {mobileMenuOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden flex">
+        <div className="fixed inset-0 z-50 xl:hidden flex">
           {/* Backdrop */}
           <div 
             onClick={() => setMobileMenuOpen(false)}
@@ -607,7 +607,7 @@ export default function Dashboard() {
       )}
 
       {/* Main Workspace */}
-      <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto max-h-screen">
+      <main className="flex-1 p-4 sm:p-6 xl:p-8 overflow-y-auto max-h-screen">
         {/* Workspace Title & Search */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div>
@@ -812,7 +812,7 @@ export default function Dashboard() {
                       </div>
 
                       {/* Responsive Action Buttons (Always visible on mobile/touch, hover-visible on desktop) */}
-                      <div className="flex items-center gap-1.5 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center gap-1.5 xl:opacity-0 xl:group-hover:opacity-100 transition-opacity">
                         {!item.locked && (
                           <button
                             onClick={() => {
