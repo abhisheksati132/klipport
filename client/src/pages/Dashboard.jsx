@@ -26,8 +26,130 @@ import {
   ShieldAlert,
   ShieldCheck,
   Download,
-  Menu
+  Menu,
+  Briefcase,
+  Users,
+  Settings,
+  AlertTriangle
 } from "lucide-react";
+
+// --- IndexedDB Configuration for Offline Caching ---
+const openIndexedDB = () => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open("ClipSyncOffline", 1);
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains("offline_clips")) {
+        db.createObjectStore("offline_clips", { keyPath: "id", autoIncrement: true });
+      }
+    };
+    request.onsuccess = (e) => resolve(e.target.result);
+    request.onerror = (e) => reject(e.target.error);
+  });
+};
+
+const saveOfflineClip = async (clip) => {
+  const db = await openIndexedDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction("offline_clips", "readwrite");
+    const store = transaction.objectStore("offline_clips");
+    const request = store.add(clip);
+    request.onsuccess = () => resolve();
+    request.onerror = (e) => reject(e.target.error);
+  });
+};
+
+const getOfflineClips = async () => {
+  const db = await openIndexedDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction("offline_clips", "readonly");
+    const store = transaction.objectStore("offline_clips");
+    const request = store.getAll();
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = (e) => reject(e.target.error);
+  });
+};
+
+const deleteOfflineClip = async (id) => {
+  const db = await openIndexedDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction("offline_clips", "readwrite");
+    const store = transaction.objectStore("offline_clips");
+    const request = store.delete(id);
+    request.onsuccess = () => resolve();
+    request.onerror = (e) => reject(e.target.error);
+  });
+};
+
+// --- Custom Code Highlighter ---
+function highlightCode(code, lang) {
+  if (!code) return "";
+  let escaped = code
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+  const keywords = /\b(const|let|var|function|return|import|export|from|def|class|if|else|for|while|try|catch|async|await|default|public|private|static|void|int|float|string|boolean|null|true|false)\b/g;
+  const strings = /(["'`])(.*?)\1/g;
+  const comments = /(\/\/.*|#.*|\/\*[\s\S]*?\*\/)/g;
+  const numbers = /\b(\d+)\b/g;
+
+  escaped = escaped.replace(comments, '<span class="text-gray-500 font-mono">$1</span>');
+  escaped = escaped.replace(strings, '<span class="text-emerald-400 font-mono">$&</span>');
+  escaped = escaped.replace(keywords, '<span class="text-purple-400 font-semibold font-mono">$1</span>');
+  escaped = escaped.replace(numbers, '<span class="text-amber-400 font-mono">$1</span>');
+
+  return escaped;
+}
+
+// --- Image Compressor ---
+const compressImage = (file) => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target.result;
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+        
+        const MAX_WIDTH = 1000;
+        const MAX_HEIGHT = 1000;
+        let width = img.width;
+        let height = img.height;
+        
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        canvas.toBlob(
+          (blob) => {
+            const compressedFile = new File([blob], file.name, {
+              type: "image/jpeg",
+              lastModified: Date.now(),
+            });
+            resolve(compressedFile);
+          },
+          "image/jpeg",
+          0.75 // 75% Quality
+        );
+      };
+    };
+  });
+};
 
 export default function Dashboard() {
   const [user, setUser] = useState(null);
@@ -36,6 +158,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("all");
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
   
   // Socket State
   const [socket, setSocket] = useState(null);
@@ -47,10 +170,19 @@ export default function Dashboard() {
   const [showPassphraseModal, setShowPassphraseModal] = useState(false);
   const [passphraseInput, setPassphraseInput] = useState("");
   const [useE2EE, setUseE2EE] = useState(false);
-  const [decryptedFiles, setDecryptedFiles] = useState({}); // maps item.id to local decrypted blob URLs
+  const [decryptedFiles, setDecryptedFiles] = useState({});
 
   // Mobile navigation state
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Workspaces State
+  const [workspaces, setWorkspaces] = useState([]);
+  const [activeWorkspace, setActiveWorkspace] = useState(null); // null = Personal
+  const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
+  const [newWorkspaceName, setNewWorkspaceName] = useState("");
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [workspaceSubmitting, setWorkspaceSubmitting] = useState(false);
 
   // New item form state
   const [itemType, setItemType] = useState("text");
@@ -71,6 +203,71 @@ export default function Dashboard() {
 
   const navigate = useNavigate();
   const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
+
+  // Request notifications permission on mount
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  // Handle Online/Offline Status listeners
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      toast.success("Connection restored! Syncing database...");
+      syncOfflineClips();
+    };
+    
+    const handleOffline = () => {
+      setIsOnline(false);
+      toast.error("You are offline. Clips will be saved locally.");
+    };
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [user, activeWorkspace, socket]);
+
+  // Sync Offline Queue
+  const syncOfflineClips = async () => {
+    if (!navigator.onLine || !user) return;
+
+    try {
+      const offlineClips = await getOfflineClips();
+      if (offlineClips.length === 0) return;
+
+      toast.loading("Syncing offline items...", { id: "offlinesync" });
+
+      for (const clip of offlineClips) {
+        const { id, isOffline, ...cleanClip } = clip;
+        const { error } = await supabase.from("clipboard_items").insert([cleanClip]);
+        if (!error) {
+          await deleteOfflineClip(id);
+        }
+      }
+
+      toast.dismiss("offlinesync");
+      toast.success("Synchronized offline items to cloud!", { icon: "☁️" });
+
+      if (socket) {
+        if (activeWorkspace) {
+          socket.emit("workspace-clip-update", { workspace_id: activeWorkspace.id });
+        } else {
+          socket.emit("clip-update", { user_id: user.id });
+        }
+      }
+
+      fetchItems(user.id);
+    } catch (err) {
+      console.error("Failed to sync offline items:", err);
+      toast.dismiss("offlinesync");
+    }
+  };
 
   useEffect(() => {
     let socketInstance = null;
@@ -94,6 +291,7 @@ export default function Dashboard() {
         }
 
         fetchItems(session.user.id);
+        fetchWorkspaces(session.user.id);
 
         socketInstance = io(backendUrl);
         setSocket(socketInstance);
@@ -107,8 +305,17 @@ export default function Dashboard() {
           setConnected(false);
         });
 
+        // Personal clip synchronization event
         socketInstance.on("clip-sync", (data) => {
-          toast.success("Updated in real-time from another device!", { icon: "🔄" });
+          triggerBrowserNotification("Personal Clip Sync", "Your personal clipboard was updated!");
+          toast.success("Personal Clipboard synced!", { icon: "🔄" });
+          fetchItems(session.user.id);
+        });
+
+        // Team Workspace sync event
+        socketInstance.on("workspace-clip-sync", (data) => {
+          triggerBrowserNotification("Team Sync", "A shared workspace clipboard was updated!");
+          toast.success("Shared Workspace synced!", { icon: "👥" });
           fetchItems(session.user.id);
         });
       } else {
@@ -125,14 +332,12 @@ export default function Dashboard() {
     };
   }, [navigate, backendUrl]);
 
-  // Decrypt items when rawItems or encryptionKey changes
+  // Decrypt items when rawItems or encryptionKey changes, also merge offline queue
   useEffect(() => {
     const processItems = async () => {
-      const processed = await Promise.all(
+      const dbClips = await Promise.all(
         rawItems.map(async (item) => {
-          if (!item.is_encrypted) {
-            return item;
-          }
+          if (!item.is_encrypted) return item;
 
           if (!encryptionKey) {
             return {
@@ -160,11 +365,32 @@ export default function Dashboard() {
           }
         })
       );
-      setItems(processed);
+
+      // Fetch locally queued offline items to render at the top
+      const offlineClips = await getOfflineClips();
+      const filteredOffline = offlineClips
+        .filter(clip => activeWorkspace ? clip.workspace_id === activeWorkspace.id : !clip.workspace_id)
+        .map(clip => ({
+          ...clip,
+          isOffline: true,
+          created_at: clip.created_at || new Date().toISOString()
+        }));
+
+      setItems([...filteredOffline, ...dbClips]);
     };
 
     processItems();
-  }, [rawItems, encryptionKey]);
+  }, [rawItems, encryptionKey, activeWorkspace]);
+
+  // Trigger local OS notification
+  const triggerBrowserNotification = (title, body) => {
+    if ("Notification" in window && Notification.permission === "granted") {
+      new Notification(title, {
+        body,
+        icon: "/logo.svg"
+      });
+    }
+  };
 
   const triggerFileDecryption = async (item) => {
     if (decryptedFiles[item.id]) return;
@@ -189,23 +415,105 @@ export default function Dashboard() {
 
   const fetchItems = async (userId) => {
     setLoading(true);
-    const { data, error } = await supabase
+    let query = supabase
       .from("clipboard_items")
       .select("*")
-      .eq("user_id", userId)
       .order("created_at", { ascending: false });
 
+    // Filter by Personal vs Shared Workspace
+    if (activeWorkspace) {
+      query = query.eq("workspace_id", activeWorkspace.id);
+    } else {
+      query = query.is("workspace_id", null).eq("user_id", userId);
+    }
+
+    const { data, error } = await query;
+
     if (error) {
-      if (error.code === "P0001" || error.message.includes("does not exist")) {
-        toast.error("Database table 'clipboard_items' not found. Please run the SQL migration in Supabase SQL editor.");
-      } else {
-        toast.error("Failed to fetch items: " + error.message);
-      }
+      toast.error("Failed to fetch items: " + error.message);
     } else {
       setRawItems(data || []);
     }
     setLoading(false);
   };
+
+  const fetchWorkspaces = async (userId) => {
+    // Select workspaces where user is owner or is listed as member
+    const { data, error } = await supabase
+      .from("workspaces")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (data) {
+      setWorkspaces(data);
+    }
+  };
+
+  const handleCreateWorkspace = async (e) => {
+    e.preventDefault();
+    if (!newWorkspaceName.trim() || !user) return;
+
+    setWorkspaceSubmitting(true);
+    try {
+      const { data, error } = await supabase
+        .from("workspaces")
+        .insert([{ name: newWorkspaceName.trim(), owner_id: user.id }])
+        .select();
+
+      if (error) throw error;
+
+      toast.success("Workspace created!");
+      setNewWorkspaceName("");
+      setShowWorkspaceModal(false);
+      fetchWorkspaces(user.id);
+    } catch (err) {
+      toast.error("Failed to create workspace: " + err.message);
+    } finally {
+      setWorkspaceSubmitting(false);
+    }
+  };
+
+  const handleInviteMember = async (e) => {
+    e.preventDefault();
+    if (!inviteEmail.trim() || !activeWorkspace) return;
+
+    setWorkspaceSubmitting(true);
+    try {
+      const { error } = await supabase
+        .from("workspace_members")
+        .insert([{ workspace_id: activeWorkspace.id, user_email: inviteEmail.trim().toLowerCase() }]);
+
+      if (error) throw error;
+
+      toast.success(`Invitation sent to ${inviteEmail}!`);
+      setInviteEmail("");
+      setShowInviteModal(false);
+    } catch (err) {
+      toast.error("Failed to invite member: " + err.message);
+    } finally {
+      setWorkspaceSubmitting(false);
+    }
+  };
+
+  const handleWorkspaceChange = (workspace) => {
+    setActiveWorkspace(workspace);
+    setMobileMenuOpen(false);
+
+    if (socket) {
+      if (workspace) {
+        socket.emit("join-workspace", workspace.id);
+      } else if (user) {
+        socket.emit("join-room", user.id);
+      }
+    }
+  };
+
+  // Trigger item fetching when workspace switches
+  useEffect(() => {
+    if (user) {
+      fetchItems(user.id);
+    }
+  }, [activeWorkspace, user]);
 
   const handleLogout = async () => {
     if (socket) socket.disconnect();
@@ -257,8 +565,16 @@ export default function Dashboard() {
 
     let bodyData = file;
     
+    // Auto-compress image before upload
+    if (file.type.startsWith("image/")) {
+      toast.loading("Compressing image client-side...", { id: "compress" });
+      bodyData = await compressImage(file);
+      toast.dismiss("compress");
+    }
+
+    // Encrypt file binary if E2EE is enabled
     if (keyToUse) {
-      const fileBuffer = await file.arrayBuffer();
+      const fileBuffer = await bodyData.arrayBuffer();
       const encryptedBuffer = await encryptFile(fileBuffer, keyToUse);
       bodyData = new Blob([encryptedBuffer], { type: "application/octet-stream" });
     }
@@ -268,9 +584,6 @@ export default function Dashboard() {
       .upload(filePath, bodyData);
 
     if (uploadError) {
-      if (uploadError.message.includes("Bucket not found") || uploadError.error === "Bucket not found") {
-        throw new Error("Storage bucket 'clip-files' not found in Supabase. Please create a public bucket named 'clip-files' first.");
-      }
       throw uploadError;
     }
 
@@ -315,30 +628,52 @@ export default function Dashboard() {
           setSubmitting(false);
           return;
         }
+        
+        // If offline, check files
+        if (!isOnline) {
+          toast.error("Files/Images cannot be queued offline. Please restore connection.");
+          setSubmitting(false);
+          return;
+        }
+
         toast.loading("Uploading file to Supabase...", { id: "upload" });
         fileUrlVal = await handleFileUpload(user.id, useE2EE ? encryptionKey : null);
         contentVal = file.name;
         toast.dismiss("upload");
       }
 
+      // Metadata object
       const newItem = {
         user_id: user.id,
         type: itemType,
         title: title.trim() || (itemType === "file" || itemType === "image" ? file.name : `Snippet (${new Date().toLocaleTimeString()})`),
         content: contentVal,
         file_url: fileUrlVal,
-        is_encrypted: useE2EE
+        is_encrypted: useE2EE,
+        workspace_id: activeWorkspace ? activeWorkspace.id : null
       };
 
       if (itemType === "code") {
         newItem.title = `${title.trim() || "Code Snippet"} [${codeLanguage}]`;
       }
 
-      if (useE2EE) {
-        if (itemType === "text" || itemType === "code") {
-          const ciphertext = await encryptText(contentVal, encryptionKey);
-          newItem.content = ciphertext;
-        }
+      // Encrypt text content if E2EE active
+      if (useE2EE && (itemType === "text" || itemType === "code")) {
+        const ciphertext = await encryptText(contentVal, encryptionKey);
+        newItem.content = ciphertext;
+      }
+
+      // Handle Offline Insertion vs Cloud Sync
+      if (!isOnline) {
+        await saveOfflineClip(newItem);
+        toast.success("Saved locally (Offline Queue)!", { icon: "📥" });
+        // Refresh local display to render immediately
+        setRawItems(rawItems);
+        setTextContent("");
+        setCodeContent("");
+        setTitle("");
+        setSubmitting(false);
+        return;
       }
 
       const { error } = await supabase
@@ -349,8 +684,13 @@ export default function Dashboard() {
 
       toast.success("Synced to cloud!");
       
+      // Trigger WebSockets update
       if (socket) {
-        socket.emit("clip-update", { user_id: user.id });
+        if (activeWorkspace) {
+          socket.emit("workspace-clip-update", { workspace_id: activeWorkspace.id });
+        } else {
+          socket.emit("clip-update", { user_id: user.id });
+        }
       }
 
       setTextContent("");
@@ -379,7 +719,11 @@ export default function Dashboard() {
       toast.success("Deleted from cloud");
       
       if (socket) {
-        socket.emit("clip-update", { user_id: user.id });
+        if (activeWorkspace) {
+          socket.emit("workspace-clip-update", { workspace_id: activeWorkspace.id });
+        } else {
+          socket.emit("clip-update", { user_id: user.id });
+        }
       }
 
       setRawItems(rawItems.filter((item) => item.id !== id));
@@ -391,7 +735,7 @@ export default function Dashboard() {
     if (!shareItem) return;
 
     if (shareItem.is_encrypted) {
-      toast.error("End-to-End Encrypted items cannot be shared publicly. Turn off E2EE when syncing items you wish to share.");
+      toast.error("End-to-End Encrypted items cannot be shared publicly.");
       return;
     }
 
@@ -452,7 +796,7 @@ export default function Dashboard() {
 
   // Shared Sidebar Component for Desktop and Mobile
   const SidebarContent = () => (
-    <div className="flex flex-col justify-between h-full">
+    <div className="flex flex-col justify-between h-full space-y-8">
       <div className="space-y-6">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-500/10 border border-brand-500/20 text-brand-500">
@@ -461,6 +805,43 @@ export default function Dashboard() {
           <div>
             <h2 className="text-xl font-bold tracking-tight text-white m-0">ClipSync</h2>
             <span className="text-xs text-brand-500 font-semibold tracking-wider uppercase">Cloud Sync</span>
+          </div>
+        </div>
+
+        {/* Workspace Manager */}
+        <div className="space-y-2">
+          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-widest">Active Workspace</label>
+          <div className="space-y-1">
+            <button
+              onClick={() => handleWorkspaceChange(null)}
+              className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-all cursor-pointer ${
+                !activeWorkspace ? "bg-white/5 border border-white/10 text-white" : "text-gray-400 hover:text-white"
+              }`}
+            >
+              <User className="h-3.5 w-3.5" /> Personal Workspace
+            </button>
+
+            {workspaces.map((ws) => (
+              <button
+                key={ws.id}
+                onClick={() => handleWorkspaceChange(ws)}
+                className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-all cursor-pointer ${
+                  activeWorkspace?.id === ws.id ? "bg-white/5 border border-white/10 text-white" : "text-gray-400 hover:text-white"
+                }`}
+              >
+                <Briefcase className="h-3.5 w-3.5" /> {ws.name}
+              </button>
+            ))}
+
+            <button
+              onClick={() => {
+                setShowWorkspaceModal(true);
+                setMobileMenuOpen(false);
+              }}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-brand-500 hover:text-brand-400 transition-all cursor-pointer border border-dashed border-brand-500/25 bg-brand-500/5"
+            >
+              <Plus className="h-3.5 w-3.5" /> Create Workspace
+            </button>
           </div>
         </div>
 
@@ -580,7 +961,7 @@ export default function Dashboard() {
         </button>
       </header>
 
-      {/* Desktop Sidebar (hidden on mobile) */}
+      {/* Desktop Sidebar */}
       <aside className="hidden xl:flex w-64 border-r border-white/5 bg-white/[0.01] p-6 flex-col justify-between shrink-0">
         <SidebarContent />
       </aside>
@@ -608,11 +989,31 @@ export default function Dashboard() {
 
       {/* Main Workspace */}
       <main className="flex-1 p-4 sm:p-6 xl:p-8 overflow-y-auto max-h-screen">
+        
+        {/* Connection status banner for offline queueing */}
+        {!isOnline && (
+          <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 mb-6 flex items-center justify-center gap-2 text-xs font-semibold text-amber-500">
+            <AlertTriangle className="h-4 w-4 shrink-0 animate-bounce" /> Currently Offline. Text/Code clips will be queued locally and auto-synced when online.
+          </div>
+        )}
+
         {/* Workspace Title & Search */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white m-0">Universal Clipboard</h1>
-            <p className="mt-1 text-xs sm:text-sm text-gray-400">Instantly share notes, code, and files across all your devices.</p>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white m-0 flex items-center gap-3">
+              {activeWorkspace ? activeWorkspace.name : "Universal Clipboard"}
+              {activeWorkspace && (
+                <button
+                  onClick={() => setShowInviteModal(true)}
+                  className="rounded-lg bg-brand-600/10 border border-brand-500/30 px-3 py-1.5 text-xs font-semibold text-brand-500 hover:bg-brand-600/20 flex items-center gap-1 cursor-pointer"
+                >
+                  <Users className="h-3.5 w-3.5" /> Invite Member
+                </button>
+              )}
+            </h1>
+            <p className="mt-1 text-xs sm:text-sm text-gray-400">
+              {activeWorkspace ? "Collaborating with teammates in real-time." : "Instantly share notes, code, and files across all your devices."}
+            </p>
           </div>
 
           <div className="relative w-full md:w-80">
@@ -758,7 +1159,7 @@ export default function Dashboard() {
                   {submitting ? (
                     <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
                   ) : (
-                    <>Sync to Cloud</>
+                    <>Sync to Workspace</>
                   )}
                 </button>
               </form>
@@ -804,6 +1205,11 @@ export default function Dashboard() {
                                 <ShieldCheck className="h-3 w-3" /> E2EE
                               </span>
                             )}
+                            {item.isOffline && (
+                              <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                                Offline Queue
+                              </span>
+                            )}
                           </h4>
                           <span className="text-xs text-gray-500">
                             {new Date(item.created_at).toLocaleString()}
@@ -811,9 +1217,9 @@ export default function Dashboard() {
                         </div>
                       </div>
 
-                      {/* Responsive Action Buttons (Always visible on mobile/touch, hover-visible on desktop) */}
+                      {/* Responsive Action Buttons */}
                       <div className="flex items-center gap-1.5 xl:opacity-0 xl:group-hover:opacity-100 transition-opacity">
-                        {!item.locked && (
+                        {!item.locked && !item.isOffline && (
                           <button
                             onClick={() => {
                               setShareItem(item);
@@ -836,7 +1242,7 @@ export default function Dashboard() {
                             <Copy className="h-4 w-4" />
                           </button>
                         )}
-                        {!item.locked && (item.type === "file" || item.type === "image") && (
+                        {!item.locked && !item.isOffline && (item.type === "file" || item.type === "image") && (
                           <a
                             href={item.is_encrypted ? (decryptedFiles[item.id] || "#") : item.file_url}
                             target="_blank"
@@ -847,13 +1253,15 @@ export default function Dashboard() {
                             <ExternalLink className="h-4 w-4" />
                           </a>
                         )}
-                        <button
-                          onClick={() => handleDelete(item.id)}
-                          className="p-1.5 rounded-lg text-gray-400 hover:bg-red-500/10 hover:text-red-400 transition-all cursor-pointer"
-                          title="Delete cloud record"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        {!item.isOffline && (
+                          <button
+                            onClick={() => handleDelete(item.id)}
+                            className="p-1.5 rounded-lg text-gray-400 hover:bg-red-500/10 hover:text-red-400 transition-all cursor-pointer"
+                            title="Delete cloud record"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -877,7 +1285,7 @@ export default function Dashboard() {
 
                           {item.type === "code" && (
                             <pre className="overflow-x-auto bg-black/35 p-4 rounded-xl border border-white/5 font-mono text-xs max-h-60">
-                              <code>{item.content}</code>
+                              <code dangerouslySetInnerHTML={{ __html: highlightCode(item.content) }} />
                             </pre>
                           )}
 
@@ -1037,7 +1445,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Set Passphrase Modal Overlay */}
+      {/* Set Passphrase Modal */}
       {showPassphraseModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-2xl border border-white/5 bg-dark-card p-6 shadow-2xl relative">
@@ -1081,6 +1489,93 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* Create Workspace Modal */}
+      {showWorkspaceModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-white/5 bg-dark-card p-6 shadow-2xl relative">
+            <button
+              onClick={() => setShowWorkspaceModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white transition-all cursor-pointer"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
+              <Briefcase className="h-5 w-5 text-brand-500" /> Create Workspace
+            </h3>
+            <p className="text-xs text-gray-400 mb-6 font-sans">
+              Create a shared environment to collaborate on files, links, and code snippets with your team.
+            </p>
+
+            <form onSubmit={handleCreateWorkspace} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1.5">Workspace Name</label>
+                <input
+                  type="text"
+                  value={newWorkspaceName}
+                  onChange={(e) => setNewWorkspaceName(e.target.value)}
+                  placeholder="e.g. Design Team, Project Alpha"
+                  className="w-full rounded-xl border border-white/10 bg-white/[0.02] py-2.5 px-4 text-sm text-white placeholder-gray-500 outline-none transition-all focus:border-brand-500/30"
+                  required
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={workspaceSubmitting}
+                className="w-full rounded-xl bg-brand-600 py-3 text-sm font-semibold text-white transition-all hover:bg-brand-500 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {workspaceSubmitting ? "Creating..." : "Create Workspace"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Invite Member Modal */}
+      {showInviteModal && activeWorkspace && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-white/5 bg-dark-card p-6 shadow-2xl relative">
+            <button
+              onClick={() => setShowInviteModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white transition-all cursor-pointer"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
+              <Users className="h-5 w-5 text-brand-500" /> Invite to "{activeWorkspace.name}"
+            </h3>
+            <p className="text-xs text-gray-400 mb-6 font-sans">
+              Add a teammate by entering their email address. They will be able to view and publish items to this workspace.
+            </p>
+
+            <form onSubmit={handleInviteMember} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1.5">Teammate's Email Address</label>
+                <input
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  placeholder="name@email.com"
+                  className="w-full rounded-xl border border-white/10 bg-white/[0.02] py-2.5 px-4 text-sm text-white placeholder-gray-500 outline-none transition-all focus:border-brand-500/30"
+                  required
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={workspaceSubmitting}
+                className="w-full rounded-xl bg-brand-600 py-3 text-sm font-semibold text-white transition-all hover:bg-brand-500 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {workspaceSubmitting ? "Inviting..." : `Add to ${activeWorkspace.name}`}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

@@ -44,6 +44,19 @@ io.on("connection", (socket) => {
     }
   });
 
+  // --- Ultimate Upgrade: Workspace Room Sync ---
+  socket.on("join-workspace", (workspaceId) => {
+    socket.join(workspaceId);
+    console.log(`🏢 Client joined workspace sync room: ${workspaceId}`);
+  });
+
+  socket.on("workspace-clip-update", (data) => {
+    if (data && data.workspace_id) {
+      socket.to(data.workspace_id).emit("workspace-clip-sync", data);
+      console.log(`🔄 Workspace update broadcasted for workspace: ${data.workspace_id}`);
+    }
+  });
+
   // --- Phase 2: Account-Free Quick Share ---
   
   // Request a new quick share session

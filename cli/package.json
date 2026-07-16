@@ -1,0 +1,13 @@
+{
+  "name": "clipsync-cli",
+  "version": "1.0.0",
+  "description": "Desktop CLI companion for ClipSync",
+  "main": "cli.js",
+  "bin": {
+    "clipsync": "./cli.js"
+  },
+  "preferGlobal": true,
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

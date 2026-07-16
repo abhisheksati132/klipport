@@ -1,4 +1,15 @@
--- Create the clipboard_items table
+-- Enable pgcrypto extension for password hashing
+create extension if not exists pgcrypto;
+
+-- Create workspaces table
+create table if not exists workspaces (
+  id uuid default gen_random_uuid() primary key,
+  name text not null,
+  owner_id uuid references auth.users(id) on delete cascade not null,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- Create clipboard_items table (with workspace_id link)
 create table if not exists clipboard_items (
   id uuid default gen_random_uuid() primary key,
   user_id uuid references auth.users(id) on delete cascade not null,
@@ -7,20 +18,47 @@ create table if not exists clipboard_items (
   content text,
   file_url text,
   is_encrypted boolean default false,
+  workspace_id uuid references workspaces(id) on delete cascade,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- Enable RLS (Row Level Security)
-alter table clipboard_items enable row level security;
+-- Create workspace_members table
+create table if not exists workspace_members (
+  id uuid default gen_random_uuid() primary key,
+  workspace_id uuid references workspaces(id) on delete cascade not null,
+  user_email text not null,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
 
--- Create policies for RLS
+-- Enable RLS (Row Level Security) on tables
+alter table clipboard_items enable row level security;
+alter table workspaces enable row level security;
+alter table workspace_members enable row level security;
+
+-- Create policies for clipboard_items
 create policy "Users can select their own clipboard items"
   on clipboard_items for select
-  using (auth.uid() = user_id);
+  using (
+    auth.uid() = user_id or 
+    (workspace_id is not null and exists (
+      select 1 from workspaces w 
+      where w.id = workspace_id and (w.owner_id = auth.uid() or w.id in (
+        select m.workspace_id from workspace_members m where m.user_email = auth.email()
+      ))
+    ))
+  );
 
 create policy "Users can insert their own clipboard items"
   on clipboard_items for insert
-  with check (auth.uid() = user_id);
+  with check (
+    auth.uid() = user_id or
+    (workspace_id is not null and exists (
+      select 1 from workspaces w 
+      where w.id = workspace_id and (w.owner_id = auth.uid() or w.id in (
+        select m.workspace_id from workspace_members m where m.user_email = auth.email()
+      ))
+    ))
+  );
 
 create policy "Users can update their own clipboard items"
   on clipboard_items for update
@@ -30,8 +68,54 @@ create policy "Users can delete their own clipboard items"
   on clipboard_items for delete
   using (auth.uid() = user_id);
 
--- Enable pgcrypto extension for hashing (should be enabled by default)
-create extension if not exists pgcrypto;
+-- Create policies for workspaces
+create policy "Users can view workspaces they own or belong to"
+  on workspaces for select
+  using (
+    owner_id = auth.uid() or 
+    exists (
+      select 1 from workspace_members m 
+      where m.workspace_id = id and m.user_email = auth.email()
+    )
+  );
+
+create policy "Owners can insert workspaces"
+  on workspaces for insert
+  with check (owner_id = auth.uid());
+
+create policy "Owners can delete workspaces"
+  on workspaces for delete
+  using (owner_id = auth.uid());
+
+-- Create policies for workspace_members
+create policy "Members are viewable by other workspace members"
+  on workspace_members for select
+  using (
+    exists (
+      select 1 from workspaces w 
+      where w.id = workspace_id and (w.owner_id = auth.uid() or w.id in (
+        select m.workspace_id from workspace_members m where m.user_email = auth.email()
+      ))
+    )
+  );
+
+create policy "Workspace owners can add members"
+  on workspace_members for insert
+  with check (
+    exists (
+      select 1 from workspaces w 
+      where w.id = workspace_id and w.owner_id = auth.uid()
+    )
+  );
+
+create policy "Workspace owners can delete members"
+  on workspace_members for delete
+  using (
+    exists (
+      select 1 from workspaces w 
+      where w.id = workspace_id and w.owner_id = auth.uid()
+    )
+  );
 
 -- Create shared_links table
 create table if not exists shared_links (
@@ -118,5 +202,6 @@ begin
 end;
 $$ language plpgsql;
 
--- Alter existing table to add is_encrypted column if it doesn't exist
+-- Migration updates to apply additions to existing tables if needed
+alter table clipboard_items add column if not exists workspace_id uuid references workspaces(id) on delete cascade;
 alter table clipboard_items add column if not exists is_encrypted boolean default false;
