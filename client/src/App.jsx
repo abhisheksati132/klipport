@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
+import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
@@ -21,15 +22,16 @@ export default function App() {
           },
           success: {
             iconTheme: {
-              primary: "#a855f7",
+              primary: "#0078d4", // Windows 11 Blue Theme
               secondary: "#14151b",
             },
           },
         }}
       />
       <Routes>
+        <Route path="/" element={<Landing />} />
         <Route
-          path="/"
+          path="/dashboard"
           element={
             <ProtectedRoute>
               <Dashboard />

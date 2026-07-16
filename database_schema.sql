@@ -88,16 +88,14 @@ create policy "Owners can delete workspaces"
   using (owner_id = auth.uid());
 
 -- Create policies for workspace_members
-create policy "Members are viewable by other workspace members"
+-- 8. Configure workspace_members RLS policies
+drop policy if exists "Members are viewable by other workspace members" on workspace_members;
+drop policy if exists "Workspace owners can add members" on workspace_members;
+drop policy if exists "Workspace owners can delete members" on workspace_members;
+
+create policy "Members are viewable by authenticated users"
   on workspace_members for select
-  using (
-    exists (
-      select 1 from workspaces w 
-      where w.id = workspace_id and (w.owner_id = auth.uid() or w.id in (
-        select m.workspace_id from workspace_members m where m.user_email = auth.email()
-      ))
-    )
-  );
+  using (auth.role() = 'authenticated');
 
 create policy "Workspace owners can add members"
   on workspace_members for insert

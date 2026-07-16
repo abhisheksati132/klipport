@@ -28,7 +28,7 @@ export default function Login() {
       setLoading(false);
     } else {
       toast.success("Successfully logged in!");
-      navigate("/");
+      navigate("/dashboard");
     }
   };
 
@@ -36,7 +36,7 @@ export default function Login() {
     <div className="relative flex min-h-screen w-full max-w-full items-center justify-center bg-dark-bg p-4 overflow-hidden">
       {/* Background ambient glows */}
       <div className="absolute top-1/4 left-1/4 -z-10 h-72 w-72 rounded-full bg-brand-500/10 blur-[80px]"></div>
-      <div className="absolute bottom-1/4 right-1/4 -z-10 h-80 w-80 rounded-full bg-purple-500/10 blur-[100px]"></div>
+      <div className="absolute bottom-1/4 right-1/4 -z-10 h-80 w-80 rounded-full bg-cyan-500/10 blur-[100px]"></div>
 
       <div className="w-full max-w-md rounded-2xl border border-white/5 bg-white/[0.02] p-8 shadow-2xl backdrop-blur-xl">
         <div className="mb-8 text-center">

@@ -191,7 +191,7 @@ export default function QuickShare() {
       case "text":
         return <FileText className="h-5 w-5 text-blue-400" />;
       case "image":
-        return <ImageIcon className="h-5 w-5 text-purple-400" />;
+        return <ImageIcon className="h-5 w-5 text-cyan-400" />;
       default:
         return <FileIcon className="h-5 w-5 text-orange-400" />;
     }
@@ -201,7 +201,7 @@ export default function QuickShare() {
     <div className="relative flex min-h-screen w-full max-w-full flex-col items-center justify-center bg-dark-bg p-4 overflow-x-hidden">
       {/* Background ambient glows */}
       <div className="absolute top-1/4 left-1/4 -z-10 h-72 w-72 rounded-full bg-brand-500/10 blur-[80px]"></div>
-      <div className="absolute bottom-1/4 right-1/4 -z-10 h-80 w-80 rounded-full bg-purple-500/10 blur-[100px]"></div>
+      <div className="absolute bottom-1/4 right-1/4 -z-10 h-80 w-80 rounded-full bg-cyan-500/10 blur-[100px]"></div>
 
       {/* Floating Status Header */}
       <div className="absolute top-4 left-4 right-4 flex items-center justify-between pointer-events-none">

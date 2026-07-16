@@ -788,7 +788,7 @@ export default function Dashboard() {
       case "code":
         return <Code className="h-5 w-5 text-emerald-400" />;
       case "image":
-        return <ImageIcon className="h-5 w-5 text-purple-400" />;
+        return <ImageIcon className="h-5 w-5 text-cyan-400" />;
       default:
         return <FileIcon className="h-5 w-5 text-orange-400" />;
     }
