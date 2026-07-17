@@ -1,6 +1,6 @@
-# ClipSync - Secure Cross-Device Universal Clipboard & PWA
+# Klipport - Secure Cross-Device Universal Clipboard & PWA
 
-ClipSync is a cross-device universal clipboard and secure file synchronization platform designed for instant, secure data transfers. Built with React (Vite + Tailwind CSS v4), Node.js (Express + Socket.io), and Supabase (PostgreSQL + Auth + Storage), it is fully installable as a Progressive Web App (PWA) and features client-side End-to-End Encryption (E2EE).
+Klipport is a cross-device universal clipboard and secure file synchronization platform designed for instant, secure data transfers. Built with React (Vite + Tailwind CSS v4), Node.js (Express + Socket.io), and Supabase (PostgreSQL + Auth + Storage), it is fully installable as a Progressive Web App (PWA) and features client-side End-to-End Encryption (E2EE).
 
 ## 🚀 Key Features
 

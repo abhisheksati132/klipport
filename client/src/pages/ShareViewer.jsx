@@ -114,7 +114,7 @@ export default function ShareViewer() {
           to="/login"
           className="flex items-center gap-2 rounded-xl bg-white/[0.02] border border-white/5 px-4 py-2 text-sm font-semibold text-gray-300 hover:bg-white/[0.06] transition-all"
         >
-          <Clipboard className="h-4 w-4 text-brand-500" /> ClipSync
+          <Clipboard className="h-4 w-4 text-brand-500" /> Klipport
         </Link>
       </div>
 

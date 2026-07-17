@@ -6,7 +6,7 @@ const readline = require("readline");
 
 const SUPABASE_URL = "https://qpbuwbnyqesuwqckljjg.supabase.co";
 const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwYnV3Ym55cWVzdXdxY2tsampnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyMDM3NTgsImV4cCI6MjA5OTc3OTc1OH0.GVFLHN1GM6pW1vjOuhS-WsWFiC17Nm5U4pybvsi10z4";
-const CONFIG_PATH = path.join(process.env.HOME || process.env.USERPROFILE || ".", ".clipsync-cli.json");
+const CONFIG_PATH = path.join(process.env.HOME || process.env.USERPROFILE || ".", ".klipport-cli.json");
 
 function loadConfig() {
   if (fs.existsSync(CONFIG_PATH)) {
@@ -31,7 +31,7 @@ const rl = readline.createInterface({
 const question = (query) => new Promise((resolve) => rl.question(query, resolve));
 
 async function handleLogin() {
-  console.log("🔒 Log in to ClipSync:");
+  console.log("🔒 Log in to Klipport:");
   console.log("You can log in using either your account credentials or a Personal Access Token (PAT).");
   
   const authMethod = await question("Choose Auth Method (1: Password, 2: Token): ");
@@ -109,7 +109,7 @@ async function handleLogin() {
 async function handlePush(content, customTitle) {
   const config = loadConfig();
   if (!config) {
-    console.error("❌ Not logged in. Please run: clipsync login");
+    console.error("❌ Not logged in. Please run: klipport login");
     process.exit(1);
   }
 
@@ -152,7 +152,7 @@ async function handlePush(content, customTitle) {
     }
 
     if (res.ok) {
-      console.log(`☁️ Synced to ClipSync: "${title}"`);
+      console.log(`☁️ Synced to Klipport: "${title}"`);
     } else {
       const err = await res.json();
       console.error("❌ Sync failed:", err.message || res.statusText);
@@ -165,7 +165,7 @@ async function handlePush(content, customTitle) {
 async function handleGet() {
   const config = loadConfig();
   if (!config) {
-    console.error("❌ Not logged in. Please run: clipsync login");
+    console.error("❌ Not logged in. Please run: klipport login");
     process.exit(1);
   }
 
@@ -219,12 +219,12 @@ const command = args[0];
 
 if (!command || command === "--help" || command === "-h") {
   console.log(`
-ClipSync Desktop CLI Companion
+Klipport Desktop CLI Companion
 Usage:
-  clipsync login         Log in to your ClipSync account
-  clipsync get           Retrieve your latest cloud clipboard item
-  clipsync push <text>   Push text content to the cloud
-  echo "logs" | clipsync  Pipe console output directly to the cloud
+  klipport login         Log in to your Klipport account
+  klipport get           Retrieve your latest cloud clipboard item
+  klipport push <text>   Push text content to the cloud
+  echo "logs" | klipport  Pipe console output directly to the cloud
 
 Options:
   --title, -t            Set custom title when pushing clips
@@ -239,7 +239,7 @@ if (command === "login") {
 } else if (command === "push") {
   const content = args.slice(1).join(" ");
   if (!content) {
-    console.error("❌ Please provide text content to push. Example: clipsync push \"hello\"");
+    console.error("❌ Please provide text content to push. Example: klipport push \"hello\"");
     process.exit(1);
   }
   handlePush(content);
@@ -255,7 +255,7 @@ if (command === "login") {
     if (inputData) {
       handlePush(inputData, "Terminal Pipe Sync");
     } else {
-      console.error(`❌ Unknown command: ${command}. Run clipsync --help for usage.`);
+      console.error(`❌ Unknown command: ${command}. Run klipport --help for usage.`);
       process.exit(1);
     }
   });

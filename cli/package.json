@@ -1,10 +1,10 @@
 {
-  "name": "clipsync-cli",
+  "name": "klipport-cli",
   "version": "1.0.0",
-  "description": "Desktop CLI companion for ClipSync",
+  "description": "Desktop CLI companion for Klipport",
   "main": "cli.js",
   "bin": {
-    "clipsync": "./cli.js"
+    "klipport": "./cli.js"
   },
   "preferGlobal": true,
   "engines": {

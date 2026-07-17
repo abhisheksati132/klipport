@@ -1,4 +1,4 @@
-const CACHE_NAME = "clipsync-cache-v2";
+const CACHE_NAME = "klipport-cache-v3";
 const PRECACHE_ASSETS = [
   "/",
   "/index.html",

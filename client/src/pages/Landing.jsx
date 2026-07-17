@@ -38,7 +38,7 @@ export default function Landing() {
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-500/10 border border-brand-500/20 text-brand-500">
               <Clipboard className="h-5 w-5" />
             </div>
-            <span className="text-xl font-bold text-white tracking-tight">ClipSync</span>
+            <span className="text-xl font-bold text-white tracking-tight">Klipport</span>
           </div>
 
           <div className="flex items-center gap-4">
@@ -171,7 +171,7 @@ export default function Landing() {
       {/* Footer */}
       <footer className="w-full border-t border-white/5 bg-white/[0.01] py-8 text-center text-xs text-gray-500">
         <div className="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p className="m-0">© {new Date().getFullYear()} ClipSync. All rights reserved.</p>
+          <p className="m-0">© {new Date().getFullYear()} Klipport. All rights reserved.</p>
           <p className="m-0 font-semibold text-brand-500">
             Designed &amp; Crafted with 💻 by Abhishek Sati
           </p>

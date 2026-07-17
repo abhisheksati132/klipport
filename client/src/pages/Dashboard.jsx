@@ -64,7 +64,7 @@ import {
 // --- IndexedDB Configuration for Offline Caching ---
 const openIndexedDB = () => {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open("ClipSyncOffline", 2); // Version 2 supporting cache
+    const request = indexedDB.open("KlipportOffline", 2); // Version 2 supporting cache
     request.onupgradeneeded = (e) => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains("offline_clips")) {
@@ -525,8 +525,8 @@ export default function Dashboard() {
     }
 
     if (isRecording) {
-      if (window.clipsync_recognition) {
-        window.clipsync_recognition.stop();
+      if (window.klipport_recognition) {
+        window.klipport_recognition.stop();
       }
       setIsRecording(false);
       toast.success("Voice recording stopped.");
@@ -559,7 +559,7 @@ export default function Dashboard() {
         setIsRecording(false);
       };
 
-      window.clipsync_recognition = rec;
+      window.klipport_recognition = rec;
       rec.start();
     }
   };
@@ -624,7 +624,7 @@ export default function Dashboard() {
       if (session) {
         setUser(session.user);
         
-        const storedPassphrase = sessionStorage.getItem("clipsync_passphrase");
+        const storedPassphrase = sessionStorage.getItem("klipport_passphrase");
         if (storedPassphrase) {
           setPassphrase(storedPassphrase);
           try {
@@ -1039,7 +1039,7 @@ export default function Dashboard() {
     setTokenSubmitting(true);
     const randArr = new Uint8Array(16);
     crypto.getRandomValues(randArr);
-    const rawToken = "clipsync_pat_" + Array.from(randArr).map(b => b.toString(16).padStart(2, '0')).join('');
+    const rawToken = "klipport_pat_" + Array.from(randArr).map(b => b.toString(16).padStart(2, '0')).join('');
     
     try {
       const hash = await sha256(rawToken);
@@ -1294,7 +1294,7 @@ export default function Dashboard() {
       const key = await deriveKey(passphraseInput);
       setEncryptionKey(key);
       setPassphrase(passphraseInput);
-      sessionStorage.setItem("clipsync_passphrase", passphraseInput);
+      sessionStorage.setItem("klipport_passphrase", passphraseInput);
       setUseE2EE(true);
       setShowPassphraseModal(false);
       toast.success("E2EE Passphrase Set Successfully!", { icon: "🔒" });
@@ -1340,7 +1340,7 @@ export default function Dashboard() {
     setAsymmetricPrivateKey(null);
     setAsymmetricPublicKey(null);
     setPassphrase("");
-    sessionStorage.removeItem("clipsync_passphrase");
+    sessionStorage.removeItem("klipport_passphrase");
     setUseE2EE(false);
     toast.success("Passphrase cleared. E2EE locked.");
   };
@@ -1598,7 +1598,7 @@ export default function Dashboard() {
 
   const handleLogout = async () => {
     if (socket) socket.disconnect();
-    sessionStorage.removeItem("clipsync_passphrase");
+    sessionStorage.removeItem("klipport_passphrase");
     await supabase.auth.signOut();
     toast.success("Logged out successfully");
     navigate("/");
@@ -1668,7 +1668,7 @@ export default function Dashboard() {
             <Clipboard className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-xl font-bold tracking-tight text-white m-0 font-sans">ClipSync</h2>
+            <h2 className="text-xl font-bold tracking-tight text-white m-0 font-sans">Klipport</h2>
             <span className="text-xs text-brand-500 font-semibold tracking-wider uppercase">Cloud Settings</span>
           </div>
         </div>
@@ -1795,7 +1795,7 @@ export default function Dashboard() {
             <Clipboard className="h-10 w-10" />
           </div>
           <h2 className="text-3xl font-extrabold text-white tracking-tight">Drop File Anywhere to Sync!</h2>
-          <p className="text-sm text-gray-400 mt-2">Release the file to load it directly into your ClipSync upload portal.</p>
+          <p className="text-sm text-gray-400 mt-2">Release the file to load it directly into your Klipport upload portal.</p>
         </div>
       )}
 
@@ -1806,7 +1806,7 @@ export default function Dashboard() {
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-500">
               <Clipboard className="h-4.5 w-4.5" />
             </div>
-            <span className="text-lg font-bold text-white tracking-tight">ClipSync</span>
+            <span className="text-lg font-bold text-white tracking-tight">Klipport</span>
           </div>
 
           <div className="relative">
@@ -1921,7 +1921,7 @@ export default function Dashboard() {
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-500">
             <Clipboard className="h-4 w-4" />
           </div>
-          <span className="text-lg font-bold text-white tracking-tight">ClipSync</span>
+          <span className="text-lg font-bold text-white tracking-tight">Klipport</span>
         </div>
         <button
           onClick={() => setMobileMenuOpen(true)}

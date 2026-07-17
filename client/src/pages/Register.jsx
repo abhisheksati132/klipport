@@ -64,7 +64,7 @@ export default function Register() {
             <Clipboard className="h-6 w-6" />
           </div>
           <h1 className="text-3xl font-bold tracking-tight text-white m-0">Create Account</h1>
-          <p className="mt-2 text-sm text-gray-400">Join ClipSync today to sync files and text instantly</p>
+          <p className="mt-2 text-sm text-gray-400">Join Klipport today to sync files and text instantly</p>
         </div>
 
         <form onSubmit={handleRegister} className="space-y-5">

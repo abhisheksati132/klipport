@@ -6,7 +6,7 @@ export async function deriveKey(passphrase) {
   const passphraseBytes = encoder.encode(passphrase);
   
   // Use a static salt to ensure the derived key remains identical for the same passphrase
-  const saltBytes = encoder.encode("clipsync-e2ee-custom-key-salt-987123");
+  const saltBytes = encoder.encode("klipport-e2ee-custom-key-salt-987123");
 
   const baseKey = await window.crypto.subtle.importKey(
     "raw",

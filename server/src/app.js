@@ -9,7 +9,7 @@ app.use(express.json());
 app.get("/", (req, res) => {
     res.json({
         success: true,
-        message: "ClipSync Backend Running 🚀"
+        message: "Klipport Backend Running 🚀"
     });
 });
 
