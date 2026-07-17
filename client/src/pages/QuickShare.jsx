@@ -38,6 +38,13 @@ export default function QuickShare() {
   const [inputText, setInputText] = useState("");
   const [sending, setSending] = useState(false);
   const fileInputRef = useRef(null);
+  const chatEndRef = useRef(null);
+
+  useEffect(() => {
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [sharedItems]);
 
   const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
   const shareUrl = `${window.location.origin}/quick-share?code=${code}`;
@@ -83,7 +90,7 @@ export default function QuickShare() {
 
     socketInstance.on("receive-quick-item", (item) => {
       toast.success(`Received ${item.type} from peer!`, { icon: "📥" });
-      setSharedItems((prev) => [item, ...prev]);
+      setSharedItems((prev) => [...prev, item]);
     });
 
     socketInstance.on("quick-session-error", ({ message }) => {
@@ -135,7 +142,7 @@ export default function QuickShare() {
       socket.emit("send-quick-item", { code, item: { ...newItem, sender: "peer" } });
     }
 
-    setSharedItems((prev) => [newItem, ...prev]);
+    setSharedItems((prev) => [...prev, newItem]);
     setInputText("");
     toast.success("Text sent!");
   };
@@ -166,7 +173,7 @@ export default function QuickShare() {
         socket.emit("send-quick-item", { code, item: { ...newItem, sender: "peer" } });
       }
 
-      setSharedItems((prev) => [newItem, ...prev]);
+      setSharedItems((prev) => [...prev, newItem]);
       toast.dismiss("filesend");
       toast.success("File sent!");
       setSending(false);
@@ -350,7 +357,7 @@ export default function QuickShare() {
           </div>
 
           {/* Transfer Area */}
-          <div className="flex-1 p-6 overflow-y-auto space-y-4 flex flex-col-reverse">
+          <div className="flex-1 p-6 overflow-y-auto space-y-4">
             {sharedItems.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-center py-12">
                 <FileText className="h-12 w-12 text-gray-600 mb-3" />
@@ -429,6 +436,7 @@ export default function QuickShare() {
                     </div>
                   </div>
                 ))}
+                <div ref={chatEndRef} />
               </div>
             )}
           </div>

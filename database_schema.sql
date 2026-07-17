@@ -273,3 +273,4 @@ end;
 $$ language plpgsql;
 alter table clipboard_items add column if not exists self_destruct boolean default false;
 alter table clipboard_items add column if not exists expires_at timestamp with time zone;
+alter table clipboard_items add column if not exists file_size integer;

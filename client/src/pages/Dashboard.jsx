@@ -41,20 +41,54 @@ import {
   Key,
   Hash,
   CheckSquare,
-  Square
+  Square,
+  HardDrive
 } from "lucide-react";
 
 // --- IndexedDB Configuration for Offline Caching ---
 const openIndexedDB = () => {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open("ClipSyncOffline", 1);
+    const request = indexedDB.open("ClipSyncOffline", 2); // Version 2 to support history caching
     request.onupgradeneeded = (e) => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains("offline_clips")) {
         db.createObjectStore("offline_clips", { keyPath: "id", autoIncrement: true });
       }
+      if (!db.objectStoreNames.contains("history_cache")) {
+        db.createObjectStore("history_cache", { keyPath: "id" });
+      }
     };
     request.onsuccess = (e) => resolve(e.target.result);
+    request.onerror = (e) => reject(e.target.error);
+  });
+};
+
+const cacheHistoryClips = async (clips) => {
+  const db = await openIndexedDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction("history_cache", "readwrite");
+    const store = transaction.objectStore("history_cache");
+    
+    // Clear old cached history
+    store.clear();
+    
+    // Add all new clips
+    clips.forEach((clip) => {
+      store.put(clip);
+    });
+    
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = (e) => reject(e.target.error);
+  });
+};
+
+const getCachedHistoryClips = async () => {
+  const db = await openIndexedDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction("history_cache", "readonly");
+    const store = transaction.objectStore("history_cache");
+    const request = store.getAll();
+    request.onsuccess = () => resolve(request.result || []);
     request.onerror = (e) => reject(e.target.error);
   });
 };
@@ -814,9 +848,25 @@ export default function Dashboard() {
     const { data, error } = await query;
 
     if (error) {
-      toast.error("Failed to fetch items: " + error.message);
+      try {
+        const cachedClips = await getCachedHistoryClips();
+        const filteredCached = cachedClips.filter(c => 
+          activeWorkspace ? c.workspace_id === activeWorkspace.id : !c.workspace_id && c.user_id === userId
+        );
+        filteredCached.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        setRawItems(filteredCached);
+        toast.success("Loaded clips from offline cache!", { icon: "📥" });
+      } catch (cacheErr) {
+        console.error("Failed to load history cache:", cacheErr);
+        toast.error("Failed to fetch items: " + error.message);
+      }
     } else {
       setRawItems(data || []);
+      try {
+        await cacheHistoryClips(data || []);
+      } catch (cacheErr) {
+        console.error("Failed to save history cache:", cacheErr);
+      }
     }
     setLoading(false);
   };
@@ -1152,6 +1202,13 @@ export default function Dashboard() {
         finalExpiresAt = new Date(Date.now() + parseInt(expiresInSeconds) * 1000).toISOString();
       }
 
+      let calculatedSize = 0;
+      if (itemType === "file" || itemType === "image") {
+        calculatedSize = file ? file.size : 0;
+      } else {
+        calculatedSize = new Blob([contentVal]).size;
+      }
+
       const newItem = {
         user_id: user.id,
         type: itemType,
@@ -1161,7 +1218,8 @@ export default function Dashboard() {
         is_encrypted: useE2EE,
         workspace_id: activeWorkspace ? activeWorkspace.id : null,
         self_destruct: selfDestruct,
-        expires_at: finalExpiresAt
+        expires_at: finalExpiresAt,
+        file_size: calculatedSize
       };
 
       if (itemType === "code") {
@@ -1822,6 +1880,30 @@ export default function Dashboard() {
               <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block text-left mb-3">Sync Network Nodes Map</span>
               <div className="bg-black/10 rounded-xl border border-white/5 py-3 flex items-center justify-center relative">
                 <canvas ref={canvasRef} className="rounded" />
+              </div>
+            </div>
+
+            {/* Storage Quota utilization tracker */}
+            <div className="rounded-2xl border border-white/5 bg-white/[0.01] p-5 sm:p-6 mt-6">
+              <h4 className="text-xs font-extrabold text-white uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <HardDrive className="h-4 w-4 text-brand-500" /> Storage Utilization
+              </h4>
+              <div className="space-y-2">
+                <div className="flex justify-between text-[10px] font-semibold text-gray-400">
+                  <span>{(rawItems.reduce((acc, curr) => acc + (curr.file_size || 0), 0) / 1024 / 1024).toFixed(2)} MB used</span>
+                  <span>50.00 MB Limit</span>
+                </div>
+                <div className="w-full h-2 rounded-full bg-white/5 overflow-hidden">
+                  <div 
+                    className="h-full bg-brand-600 rounded-full transition-all duration-500"
+                    style={{ 
+                      width: `${Math.min((rawItems.reduce((acc, curr) => acc + (curr.file_size || 0), 0) / (50 * 1024 * 1024)) * 100, 100)}%` 
+                    }}
+                  ></div>
+                </div>
+                <span className="text-[9px] text-gray-500 block text-right font-semibold">
+                  {((rawItems.reduce((acc, curr) => acc + (curr.file_size || 0), 0) / (50 * 1024 * 1024)) * 100).toFixed(1)}% full
+                </span>
               </div>
             </div>
 
