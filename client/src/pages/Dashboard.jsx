@@ -311,11 +311,6 @@ export default function Dashboard() {
   const [generatedLink, setGeneratedLink] = useState("");
   const [generatingLink, setGeneratingLink] = useState(false);
 
-  // Canvas Network Map Refs
-  const canvasRef = useRef(null);
-  const particlesRef = useRef([]);
-  const animationFrameRef = useRef(null);
-
   const navigate = useNavigate();
   const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
 
@@ -355,135 +350,7 @@ export default function Dashboard() {
     }
   };
 
-  // HTML5 Canvas Orbital Map Loop
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    
-    const dpr = window.devicePixelRatio || 1;
-    const width = 300;
-    const height = 180;
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
-    ctx.scale(dpr, dpr);
 
-    const devices = [
-      { name: "Browser", angle: 0, radius: 60, speed: 0.015, color: "#0078d4" },
-      { name: "Terminal", angle: (2 * Math.PI) / 3, radius: 60, speed: 0.012, color: "#10b981" },
-      { name: "Mobile", angle: (4 * Math.PI) / 3, radius: 60, speed: 0.018, color: "#f59e0b" }
-    ];
-
-    const drawOrbitalMap = () => {
-      ctx.clearRect(0, 0, width, height);
-
-      const centerX = width / 2;
-      const centerY = height / 2;
-
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, 60, 0, 2 * Math.PI);
-      ctx.strokeStyle = "rgba(255,255,255,0.03)";
-      ctx.lineWidth = 1;
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, 15, 0, 2 * Math.PI);
-      ctx.fillStyle = "rgba(0,120,212,0.1)";
-      ctx.strokeStyle = "rgba(0,120,212,0.4)";
-      ctx.lineWidth = 1.5;
-      ctx.fill();
-      ctx.stroke();
-      
-      ctx.fillStyle = "#fff";
-      ctx.font = "bold 9px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("Cloud", centerX, centerY);
-
-      devices.forEach((dev) => {
-        dev.angle += dev.speed;
-        const devX = centerX + Math.cos(dev.angle) * dev.radius;
-        const devY = centerY + Math.sin(dev.angle) * dev.radius;
-
-        ctx.beginPath();
-        ctx.arc(devX, devY, 6, 0, 2 * Math.PI);
-        ctx.fillStyle = dev.color;
-        ctx.fill();
-
-        ctx.fillStyle = "rgba(255,255,255,0.4)";
-        ctx.font = "7px monospace";
-        ctx.fillText(dev.name, devX, devY - 12);
-      });
-
-      particlesRef.current = particlesRef.current.filter((particle) => {
-        particle.t += particle.speed;
-        if (particle.t >= 1) {
-          if (particle.direction === "in") {
-            devices.forEach((dev) => {
-              const devX = centerX + Math.cos(dev.angle) * dev.radius;
-              const devY = centerY + Math.sin(dev.angle) * dev.radius;
-              particlesRef.current.push({
-                x: centerX,
-                y: centerY,
-                targetX: devX,
-                targetY: devY,
-                t: 0,
-                speed: 0.05,
-                color: "#0078d4",
-                direction: "out"
-              });
-            });
-          }
-          return false;
-        }
-
-        const currentX = particle.x + (particle.targetX - particle.x) * particle.t;
-        const currentY = particle.y + (particle.targetY - particle.y) * particle.t;
-
-        ctx.beginPath();
-        ctx.arc(currentX, currentY, 3, 0, 2 * Math.PI);
-        ctx.fillStyle = particle.color;
-        ctx.fill();
-
-        return true;
-      });
-
-      animationFrameRef.current = requestAnimationFrame(drawOrbitalMap);
-    };
-
-    drawOrbitalMap();
-
-    return () => {
-      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-    };
-  }, []);
-
-  const triggerSyncAnimation = (fromDeviceName) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const width = 300;
-    const height = 180;
-    const centerX = width / 2;
-    const centerY = height / 2;
-
-    const angles = { Browser: 0, Terminal: (2 * Math.PI) / 3, Mobile: (4 * Math.PI) / 3 };
-    const angle = angles[fromDeviceName] || 0;
-    const startX = centerX + Math.cos(angle) * 60;
-    const startY = centerY + Math.sin(angle) * 60;
-
-    particlesRef.current.push({
-      x: startX,
-      y: startY,
-      targetX: centerX,
-      targetY: centerY,
-      t: 0,
-      speed: 0.04,
-      color: "#0078d4",
-      direction: "in"
-    });
-  };
 
   const handleDragEnter = (e) => {
     e.preventDefault();
@@ -688,14 +555,12 @@ export default function Dashboard() {
         });
 
         socketInstance.on("clip-sync", () => {
-          triggerSyncAnimation("Terminal");
           triggerBrowserNotification("Personal Clip Sync", "Your personal clipboard was updated!");
           toast.success("Personal Clipboard synced!", { icon: "🔄" });
           fetchItems(session.user.id);
         });
 
         socketInstance.on("workspace-clip-sync", () => {
-          triggerSyncAnimation("Mobile");
           triggerBrowserNotification("Team Sync", "A shared workspace clipboard was updated!");
           toast.success("Shared Workspace synced!", { icon: "👥" });
           fetchItems(session.user.id);
@@ -1497,7 +1362,6 @@ export default function Dashboard() {
       if (error) throw error;
 
       toast.success("Synced to cloud!");
-      triggerSyncAnimation("Browser");
       
       if (socket) {
         if (activeWorkspace) {
@@ -2231,13 +2095,7 @@ export default function Dashboard() {
               </form>
             </div>
 
-            {/* Sync Nodes Canvas Topology Map (Desktop viewports >= 1280px) */}
-            <div className="hidden xl:block rounded-2xl border border-white/5 bg-white/[0.01] p-5 sm:p-6 text-center relative overflow-hidden">
-              <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block text-left mb-3">Sync Network Nodes Map</span>
-              <div className="bg-black/10 rounded-xl border border-white/5 py-3 flex items-center justify-center relative">
-                <canvas ref={canvasRef} className="rounded" />
-              </div>
-            </div>
+
 
             {/* Storage Quota utilization tracker */}
             <div className="rounded-2xl border border-white/5 bg-white/[0.01] p-5 sm:p-6 mt-6 font-sans">
