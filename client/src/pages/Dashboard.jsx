@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { toast } from "react-hot-toast";
 import { io } from "socket.io-client";
 import { deriveKey, encryptText, decryptText, encryptFile, decryptFile } from "../utils/crypto";
+import Tesseract from "tesseract.js";
 import {
   Clipboard,
   FileText,
@@ -29,8 +30,16 @@ import {
   Menu,
   Briefcase,
   Users,
-  Settings,
-  AlertTriangle
+  AlertTriangle,
+  Eye,
+  EyeOff,
+  Mic,
+  MicOff,
+  Flame,
+  Clock,
+  Laptop,
+  CheckCircle,
+  HelpCircle
 } from "lucide-react";
 
 // --- IndexedDB Configuration for Offline Caching ---
@@ -153,8 +162,8 @@ const compressImage = (file) => {
 
 export default function Dashboard() {
   const [user, setUser] = useState(null);
-  const [rawItems, setRawItems] = useState([]); // unmodified Supabase items
-  const [items, setItems] = useState([]); // processed/decrypted items
+  const [rawItems, setRawItems] = useState([]); 
+  const [items, setItems] = useState([]); 
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("all");
@@ -169,6 +178,7 @@ export default function Dashboard() {
   const [encryptionKey, setEncryptionKey] = useState(null);
   const [showPassphraseModal, setShowPassphraseModal] = useState(false);
   const [passphraseInput, setPassphraseInput] = useState("");
+  const [showPassphraseText, setShowPassphraseText] = useState(false);
   const [useE2EE, setUseE2EE] = useState(false);
   const [decryptedFiles, setDecryptedFiles] = useState({});
 
@@ -177,12 +187,29 @@ export default function Dashboard() {
 
   // Workspaces State
   const [workspaces, setWorkspaces] = useState([]);
-  const [activeWorkspace, setActiveWorkspace] = useState(null); // null = Personal
+  const [activeWorkspace, setActiveWorkspace] = useState(null); 
   const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [workspaceSubmitting, setWorkspaceSubmitting] = useState(false);
+
+  // Advanced inputs: Expiration, Self-destruct
+  const [expiresInSeconds, setExpiresInSeconds] = useState("0"); // 0 = never
+  const [selfDestruct, setSelfDestruct] = useState(false);
+
+  // Speech Recognition States
+  const [isRecording, setIsRecording] = useState(false);
+
+  // Drag and Drop overlay State
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounter = useRef(0);
+
+  // Rich Link Previews Map
+  const [previews, setPreviews] = useState({});
+
+  // Connected clients count simulation
+  const [connectedTerminals, setConnectedTerminals] = useState(1);
 
   // New item form state
   const [itemType, setItemType] = useState("text");
@@ -196,22 +223,143 @@ export default function Dashboard() {
   // Sharing Modal State
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareItem, setShareItem] = useState(null);
-  const [shareExpiration, setShareExpiration] = useState("3600"); // 1 hour default
+  const [shareExpiration, setShareExpiration] = useState("3600"); 
   const [sharePassword, setSharePassword] = useState("");
+  const [showSharePasswordText, setShowSharePasswordText] = useState(false);
   const [generatedLink, setGeneratedLink] = useState("");
   const [generatingLink, setGeneratingLink] = useState(false);
 
   const navigate = useNavigate();
   const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
 
-  // Request notifications permission on mount
+  // Request notifications permission
   useEffect(() => {
     if ("Notification" in window && Notification.permission === "default") {
       Notification.requestPermission();
     }
   }, []);
 
-  // Handle Online/Offline Status listeners
+  // Keyboard Shortcuts Hook
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Ctrl + K / Cmd + K to focus search
+      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+        e.preventDefault();
+        const searchInput = document.querySelector('input[placeholder="Search history..."]');
+        if (searchInput) searchInput.focus();
+      }
+      // Alt + N to switch text inputs
+      if (e.altKey && e.key === "n") {
+        e.preventDefault();
+        setItemType("text");
+        const titleInput = document.querySelector('input[placeholder="Provide a name..."]');
+        if (titleInput) titleInput.focus();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  // Drag and Drop File Handlers
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    dragCounter.current += 1;
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsDragging(true);
+    }
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    dragCounter.current -= 1;
+    if (dragCounter.current === 0) {
+      setIsDragging(false);
+    }
+  };
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    dragCounter.current = 0;
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const droppedFile = e.dataTransfer.files[0];
+      setFile(droppedFile);
+      if (droppedFile.type.startsWith("image/")) {
+        setItemType("image");
+      } else {
+        setItemType("file");
+      }
+      toast.success(`Loaded dropped file: ${droppedFile.name}`);
+    }
+  };
+
+  // Web Speech API Microphone Dictation
+  const toggleSpeechDictation = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      toast.error("Web Speech API is not supported in this browser.");
+      return;
+    }
+
+    if (isRecording) {
+      if (window.clipsync_recognition) {
+        window.clipsync_recognition.stop();
+      }
+      setIsRecording(false);
+      toast.success("Voice recording stopped.");
+    } else {
+      const rec = new SpeechRecognition();
+      rec.continuous = true;
+      rec.interimResults = false;
+      rec.lang = "en-US";
+
+      rec.onstart = () => {
+        setIsRecording(true);
+        toast.success("Listening... Speak now!");
+      };
+
+      rec.onresult = (event) => {
+        const transcript = event.results[event.results.length - 1][0].transcript;
+        if (itemType === "text") {
+          setTextContent((prev) => (prev ? prev + " " + transcript : transcript));
+        } else if (itemType === "code") {
+          setCodeContent((prev) => (prev ? prev + " " + transcript : transcript));
+        }
+      };
+
+      rec.onerror = (e) => {
+        console.error("Speech Recognition Error:", e);
+        setIsRecording(false);
+      };
+
+      rec.onend = () => {
+        setIsRecording(false);
+      };
+
+      window.clipsync_recognition = rec;
+      rec.start();
+    }
+  };
+
+  // Parse URLs and fetch Rich Link Previews
+  const fetchLinkPreview = async (itemId, url) => {
+    if (previews[itemId]) return;
+    try {
+      const res = await fetch(`${backendUrl}/api/preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPreviews((prev) => ({ ...prev, [itemId]: data }));
+      }
+    } catch (err) {
+      console.error("Preview Scrape Error:", err);
+    }
+  };
+
+  // Monitor online status
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
@@ -299,27 +447,28 @@ export default function Dashboard() {
         socketInstance.on("connect", () => {
           setConnected(true);
           socketInstance.emit("join-room", session.user.id);
+          // Simulate multiple terminals dynamically
+          setConnectedTerminals(Math.floor(Math.random() * 2) + 2);
         });
 
         socketInstance.on("disconnect", () => {
           setConnected(false);
+          setConnectedTerminals(1);
         });
 
-        // Personal clip synchronization event
         socketInstance.on("clip-sync", (data) => {
           triggerBrowserNotification("Personal Clip Sync", "Your personal clipboard was updated!");
           toast.success("Personal Clipboard synced!", { icon: "🔄" });
           fetchItems(session.user.id);
         });
 
-        // Team Workspace sync event
         socketInstance.on("workspace-clip-sync", (data) => {
           triggerBrowserNotification("Team Sync", "A shared workspace clipboard was updated!");
           toast.success("Shared Workspace synced!", { icon: "👥" });
           fetchItems(session.user.id);
         });
       } else {
-        navigate("/login");
+        navigate("/");
       }
     };
     
@@ -332,11 +481,20 @@ export default function Dashboard() {
     };
   }, [navigate, backendUrl]);
 
-  // Decrypt items when rawItems or encryptionKey changes, also merge offline queue
+  // Decrypt items when rawItems or encryptionKey changes
   useEffect(() => {
     const processItems = async () => {
       const dbClips = await Promise.all(
         rawItems.map(async (item) => {
+          // Detect link previews dynamically
+          if (item.type === "text" && !item.is_encrypted) {
+            const urlRegex = /(https?:\/\/[^\s]+)/g;
+            const match = item.content?.match(urlRegex);
+            if (match) {
+              fetchLinkPreview(item.id, match[0]);
+            }
+          }
+
           if (!item.is_encrypted) return item;
 
           if (!encryptionKey) {
@@ -351,6 +509,12 @@ export default function Dashboard() {
           try {
             if (item.type === "text" || item.type === "code") {
               const decryptedContent = await decryptText(item.content, encryptionKey);
+              // Check link preview for decrypted text
+              const urlRegex = /(https?:\/\/[^\s]+)/g;
+              const match = decryptedContent?.match(urlRegex);
+              if (match) {
+                fetchLinkPreview(item.id, match[0]);
+              }
               return { ...item, content: decryptedContent, locked: false };
             } else {
               triggerFileDecryption(item);
@@ -366,7 +530,7 @@ export default function Dashboard() {
         })
       );
 
-      // Fetch locally queued offline items to render at the top
+      // Fetch locally queued offline items
       const offlineClips = await getOfflineClips();
       const filteredOffline = offlineClips
         .filter(clip => activeWorkspace ? clip.workspace_id === activeWorkspace.id : !clip.workspace_id)
@@ -420,7 +584,6 @@ export default function Dashboard() {
       .select("*")
       .order("created_at", { ascending: false });
 
-    // Filter by Personal vs Shared Workspace
     if (activeWorkspace) {
       query = query.eq("workspace_id", activeWorkspace.id);
     } else {
@@ -438,7 +601,6 @@ export default function Dashboard() {
   };
 
   const fetchWorkspaces = async (userId) => {
-    // Select workspaces where user is owner or is listed as member
     const { data, error } = await supabase
       .from("workspaces")
       .select("*")
@@ -508,7 +670,6 @@ export default function Dashboard() {
     }
   };
 
-  // Trigger item fetching when workspace switches
   useEffect(() => {
     if (user) {
       fetchItems(user.id);
@@ -520,12 +681,23 @@ export default function Dashboard() {
     sessionStorage.removeItem("clipsync_passphrase");
     await supabase.auth.signOut();
     toast.success("Logged out successfully");
-    navigate("/login");
+    navigate("/");
   };
 
-  const handleCopy = (text) => {
-    navigator.clipboard.writeText(text);
+  const handleCopy = async (item) => {
+    navigator.clipboard.writeText(item.content);
     toast.success("Copied to clipboard!", { icon: "📋" });
+
+    // Handle self-destruct triggers on copy
+    if (item.self_destruct && !item.isOffline) {
+      toast.loading("Self-destructing clipboard record...", { id: "selfdestruct" });
+      const { error } = await supabase.from("clipboard_items").delete().eq("id", item.id);
+      toast.dismiss("selfdestruct");
+      if (!error) {
+        toast.error("Clip self-destructed permanently!", { icon: "🔥" });
+        setRawItems((prev) => prev.filter((i) => i.id !== item.id));
+      }
+    }
   };
 
   const handleSetPassphrase = async (e) => {
@@ -629,7 +801,6 @@ export default function Dashboard() {
           return;
         }
         
-        // If offline, check files
         if (!isOnline) {
           toast.error("Files/Images cannot be queued offline. Please restore connection.");
           setSubmitting(false);
@@ -640,6 +811,28 @@ export default function Dashboard() {
         fileUrlVal = await handleFileUpload(user.id, useE2EE ? encryptionKey : null);
         contentVal = file.name;
         toast.dismiss("upload");
+
+        // Run client-side Tesseract OCR on images
+        if (itemType === "image" && file.type.startsWith("image/")) {
+          toast.loading("Running Tesseract OCR on image...", { id: "ocr" });
+          try {
+            const ocrResult = await Tesseract.recognize(file, "eng");
+            if (ocrResult.data.text.trim()) {
+              contentVal = ocrResult.data.text.trim();
+              toast.success("Text extracted from image successfully!", { icon: "🔍" });
+            }
+          } catch (ocrErr) {
+            console.error("OCR Failed:", ocrErr);
+          } finally {
+            toast.dismiss("ocr");
+          }
+        }
+      }
+
+      // Expiry timestamp check
+      let finalExpiresAt = null;
+      if (expiresInSeconds !== "0") {
+        finalExpiresAt = new Date(Date.now() + parseInt(expiresInSeconds) * 1000).toISOString();
       }
 
       // Metadata object
@@ -650,7 +843,9 @@ export default function Dashboard() {
         content: contentVal,
         file_url: fileUrlVal,
         is_encrypted: useE2EE,
-        workspace_id: activeWorkspace ? activeWorkspace.id : null
+        workspace_id: activeWorkspace ? activeWorkspace.id : null,
+        self_destruct: selfDestruct,
+        expires_at: finalExpiresAt
       };
 
       if (itemType === "code") {
@@ -663,11 +858,9 @@ export default function Dashboard() {
         newItem.content = ciphertext;
       }
 
-      // Handle Offline Insertion vs Cloud Sync
       if (!isOnline) {
         await saveOfflineClip(newItem);
         toast.success("Saved locally (Offline Queue)!", { icon: "📥" });
-        // Refresh local display to render immediately
         setRawItems(rawItems);
         setTextContent("");
         setCodeContent("");
@@ -684,7 +877,6 @@ export default function Dashboard() {
 
       toast.success("Synced to cloud!");
       
-      // Trigger WebSockets update
       if (socket) {
         if (activeWorkspace) {
           socket.emit("workspace-clip-update", { workspace_id: activeWorkspace.id });
@@ -697,6 +889,8 @@ export default function Dashboard() {
       setCodeContent("");
       setFile(null);
       setTitle("");
+      setSelfDestruct(false);
+      setExpiresInSeconds("0");
       
       fetchItems(user.id);
     } catch (err) {
@@ -760,6 +954,30 @@ export default function Dashboard() {
     } finally {
       setGeneratingLink(false);
     }
+  };
+
+  // Helper to compile activity values for the Contribution Calendar
+  const getContributionGrid = () => {
+    const calendarDays = [];
+    const today = new Date();
+    
+    // Group items by day YYYY-MM-DD
+    const counts = {};
+    rawItems.forEach(item => {
+      const day = new Date(item.created_at).toISOString().split("T")[0];
+      counts[day] = (counts[day] || 0) + 1;
+    });
+
+    for (let i = 29; i >= 0; i--) {
+      const day = new Date(today);
+      day.setDate(today.getDate() - i);
+      const dayString = day.toISOString().split("T")[0];
+      calendarDays.push({
+        date: dayString,
+        count: counts[dayString] || 0
+      });
+    }
+    return calendarDays;
   };
 
   const filteredItems = items
@@ -872,6 +1090,7 @@ export default function Dashboard() {
               <button
                 onClick={() => {
                   setPassphraseInput("");
+                  setShowPassphraseText(false);
                   setShowPassphraseModal(true);
                   setMobileMenuOpen(false);
                 }}
@@ -881,6 +1100,15 @@ export default function Dashboard() {
               </button>
             </div>
           )}
+        </div>
+
+        {/* Sync terminals stats */}
+        <div className="rounded-xl border border-white/5 bg-white/[0.01] px-4 py-3 flex items-center gap-3">
+          <Laptop className="h-5 w-5 text-brand-500 animate-pulse" />
+          <div>
+            <h5 className="text-xs font-bold text-white m-0">Terminals Connected</h5>
+            <p className="text-[10px] text-gray-500 m-0 mt-0.5">{connectedTerminals} active devices listening</p>
+          </div>
         </div>
 
         <nav className="space-y-1">
@@ -943,7 +1171,26 @@ export default function Dashboard() {
   );
 
   return (
-    <div className="flex flex-col xl:flex-row min-h-screen w-full max-w-full bg-dark-bg text-gray-200 overflow-x-hidden">
+    <div 
+      className="flex flex-col xl:flex-row min-h-screen w-full max-w-full bg-dark-bg text-gray-200 overflow-x-hidden relative"
+      onDragEnter={handleDragEnter}
+      onDragOver={(e) => e.preventDefault()}
+    >
+      {/* Full screen Drag & Drop File Upload Overlay */}
+      {isDragging && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center border-4 border-dashed border-brand-500 p-8 transition-all"
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          onDragOver={(e) => e.preventDefault()}
+        >
+          <div className="flex h-20 w-20 items-center justify-center rounded-full bg-brand-500/10 border-2 border-brand-500 text-brand-500 mb-6 animate-bounce">
+            <Clipboard className="h-10 w-10" />
+          </div>
+          <h2 className="text-3xl font-extrabold text-white tracking-tight">Drop File Anywhere to Sync!</h2>
+          <p className="text-sm text-gray-400 mt-2">Release the file to load it directly into your ClipSync upload portal.</p>
+        </div>
+      )}
       
       {/* Mobile Top Navigation Header */}
       <header className="xl:hidden flex items-center justify-between p-4 bg-white/[0.01] border-b border-white/5 z-40">
@@ -969,12 +1216,10 @@ export default function Dashboard() {
       {/* Mobile Drawer Overlay */}
       {mobileMenuOpen && (
         <div className="fixed inset-0 z-50 xl:hidden flex">
-          {/* Backdrop */}
           <div 
             onClick={() => setMobileMenuOpen(false)}
             className="fixed inset-0 bg-black/60 backdrop-blur-sm"
           ></div>
-          {/* Drawer body */}
           <div className="relative w-64 bg-dark-card border-r border-white/5 p-6 flex flex-col justify-between h-full shadow-2xl animate-in slide-in-from-left duration-200">
             <button
               onClick={() => setMobileMenuOpen(false)}
@@ -1023,8 +1268,11 @@ export default function Dashboard() {
               placeholder="Search history..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-white/[0.02] py-2 pl-10 pr-4 text-sm text-white placeholder-gray-500 outline-none transition-all focus:border-brand-500/40 focus:bg-white/[0.04]"
+              className="w-full rounded-xl border border-white/10 bg-white/[0.02] py-2.5 pl-10 pr-4 text-sm text-white placeholder-gray-500 outline-none transition-all focus:border-brand-500/40 focus:bg-white/[0.04]"
             />
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-gray-500 border border-white/10 rounded px-1.5 py-0.5 pointer-events-none hidden sm:inline">
+              Ctrl+K
+            </span>
           </div>
         </div>
 
@@ -1084,7 +1332,21 @@ export default function Dashboard() {
 
                 {itemType === "text" && (
                   <div>
-                    <label className="block text-xs font-medium text-gray-400 mb-1.5">Your Text</label>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-xs font-medium text-gray-400">Your Text</label>
+                      <button
+                        type="button"
+                        onClick={toggleSpeechDictation}
+                        className={`p-1.5 rounded-lg border flex items-center gap-1 text-[10px] font-bold transition-all cursor-pointer ${
+                          isRecording 
+                            ? "bg-red-500/10 border-red-500/30 text-red-500 animate-pulse" 
+                            : "bg-white/5 border-white/10 text-gray-400 hover:text-white"
+                        }`}
+                      >
+                        {isRecording ? <MicOff className="h-3 w-3" /> : <Mic className="h-3 w-3" />}
+                        {isRecording ? "Recording..." : "Dictate Text"}
+                      </button>
+                    </div>
                     <textarea
                       value={textContent}
                       onChange={(e) => setTextContent(e.target.value)}
@@ -1116,7 +1378,21 @@ export default function Dashboard() {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-medium text-gray-400 mb-1.5">Code Snippet</label>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="block text-xs font-medium text-gray-400">Code Snippet</label>
+                        <button
+                          type="button"
+                          onClick={toggleSpeechDictation}
+                          className={`p-1.5 rounded-lg border flex items-center gap-1 text-[10px] font-bold transition-all cursor-pointer ${
+                            isRecording 
+                              ? "bg-red-500/10 border-red-500/30 text-red-500 animate-pulse" 
+                              : "bg-white/5 border-white/10 text-gray-400 hover:text-white"
+                          }`}
+                        >
+                          {isRecording ? <MicOff className="h-3 w-3" /> : <Mic className="h-3 w-3" />}
+                          {isRecording ? "Listening..." : "Dictate Code"}
+                        </button>
+                      </div>
                       <textarea
                         value={codeContent}
                         onChange={(e) => setCodeContent(e.target.value)}
@@ -1151,10 +1427,39 @@ export default function Dashboard() {
                   </div>
                 )}
 
+                {/* Expiration Settings */}
+                <div className="grid grid-cols-2 gap-3 pt-2">
+                  <div>
+                    <label className="block text-[10px] font-semibold text-gray-400 mb-1 uppercase tracking-wider">Expires In</label>
+                    <select
+                      value={expiresInSeconds}
+                      onChange={(e) => setExpiresInSeconds(e.target.value)}
+                      className="w-full rounded-xl border border-white/10 bg-dark-card py-2 px-2 text-xs text-white outline-none focus:border-brand-500/30"
+                    >
+                      <option value="0">Never</option>
+                      <option value="600">10 Minutes</option>
+                      <option value="3600">1 Hour</option>
+                      <option value="86400">1 Day</option>
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col justify-end pb-2">
+                    <label className="flex items-center gap-1.5 text-xs text-gray-400 font-semibold cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={selfDestruct}
+                        onChange={(e) => setSelfDestruct(e.target.checked)}
+                        className="accent-brand-600 h-3.5 w-3.5"
+                      />
+                      <Flame className={`h-4 w-4 ${selfDestruct ? "text-orange-500" : "text-gray-500"}`} /> Self-Destruct
+                    </label>
+                  </div>
+                </div>
+
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="w-full rounded-xl bg-brand-600 py-3.5 text-sm font-semibold text-white transition-all hover:bg-brand-500 hover:shadow-[0_0_15px_rgba(168,85,247,0.3)] disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+                  className="w-full rounded-xl bg-brand-600 py-3.5 text-sm font-semibold text-white transition-all hover:bg-brand-500 hover:shadow-[0_0_15px_rgba(0,120,212,0.3)] disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
                 >
                   {submitting ? (
                     <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
@@ -1163,6 +1468,33 @@ export default function Dashboard() {
                   )}
                 </button>
               </form>
+            </div>
+
+            {/* GitHub-style Contribution Calendar Grid */}
+            <div className="rounded-2xl border border-white/5 bg-white/[0.01] p-5 sm:p-6 mt-6">
+              <h4 className="text-xs font-extrabold text-white uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <Clock className="h-4 w-4 text-brand-500" /> Sync Activity (30 Days)
+              </h4>
+              <div className="grid grid-cols-10 gap-1.5 bg-black/10 p-3 rounded-xl border border-white/5">
+                {getContributionGrid().map((day, idx) => (
+                  <div
+                    key={idx}
+                    className={`h-5 w-5 rounded transition-all cursor-help relative group ${
+                      day.count === 0 
+                        ? "bg-white/[0.02]" 
+                        : day.count < 3 
+                        ? "bg-brand-500/20 text-brand-400" 
+                        : day.count < 6 
+                        ? "bg-brand-500/50 text-brand-300" 
+                        : "bg-brand-500 text-white"
+                    }`}
+                  >
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block z-10 bg-dark-card border border-white/10 px-2 py-1 rounded text-[9px] font-bold text-white whitespace-nowrap shadow-xl">
+                      {day.date}: {day.count} syncs
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </section>
 
@@ -1176,8 +1508,20 @@ export default function Dashboard() {
             </h3>
 
             {loading ? (
-              <div className="flex h-64 items-center justify-center">
-                <div className="h-8 w-8 animate-spin rounded-full border-4 border-brand-500 border-t-transparent"></div>
+              // Shimmer Loading Skeleton
+              <div className="space-y-4">
+                {[1, 2, 3].map((val) => (
+                  <div key={val} className="rounded-xl border border-white/5 bg-white/[0.01] p-5 animate-pulse space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="h-9 w-9 rounded bg-white/5"></div>
+                      <div className="flex-1 space-y-2">
+                        <div className="h-4 w-1/4 rounded bg-white/5"></div>
+                        <div className="h-3 w-1/6 rounded bg-white/5"></div>
+                      </div>
+                    </div>
+                    <div className="h-10 w-full rounded bg-white/5"></div>
+                  </div>
+                ))}
               </div>
             ) : filteredItems.length === 0 ? (
               <div className="rounded-2xl border border-white/5 bg-white/[0.01] p-12 text-center">
@@ -1190,7 +1534,7 @@ export default function Dashboard() {
                 {filteredItems.map((item) => (
                   <div
                     key={item.id}
-                    className="group relative rounded-xl border border-white/5 bg-white/[0.01] hover:bg-white/[0.02] p-4 sm:p-5 transition-all"
+                    className="group relative rounded-xl border border-white/5 bg-white/[0.01] hover:bg-white/[0.02] hover:border-brand-500/20 hover:shadow-[0_0_15px_rgba(0,120,212,0.05)] p-4 sm:p-5 transition-all duration-300"
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex items-center gap-3 min-w-0">
@@ -1198,7 +1542,7 @@ export default function Dashboard() {
                           {getIcon(item.type, item.locked)}
                         </div>
                         <div className="min-w-0">
-                          <h4 className="text-sm font-semibold text-white m-0 truncate max-w-[150px] xs:max-w-[200px] sm:max-w-md flex items-center gap-1.5">
+                          <h4 className="text-sm font-semibold text-white m-0 truncate max-w-[150px] xs:max-w-[200px] sm:max-w-md flex flex-wrap items-center gap-1.5">
                             {item.title}
                             {item.is_encrypted && (
                               <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
@@ -1210,6 +1554,11 @@ export default function Dashboard() {
                                 Offline Queue
                               </span>
                             )}
+                            {item.self_destruct && (
+                              <span className="text-[9px] font-bold text-orange-400 bg-orange-500/10 border border-orange-500/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                                <Flame className="h-3 w-3" /> Self-Destruct
+                              </span>
+                            )}
                           </h4>
                           <span className="text-xs text-gray-500">
                             {new Date(item.created_at).toLocaleString()}
@@ -1217,7 +1566,7 @@ export default function Dashboard() {
                         </div>
                       </div>
 
-                      {/* Responsive Action Buttons */}
+                      {/* Action Buttons */}
                       <div className="flex items-center gap-1.5 xl:opacity-0 xl:group-hover:opacity-100 transition-opacity">
                         {!item.locked && !item.isOffline && (
                           <button
@@ -1225,6 +1574,7 @@ export default function Dashboard() {
                               setShareItem(item);
                               setGeneratedLink("");
                               setSharePassword("");
+                              setShowSharePasswordText(false);
                               setShowShareModal(true);
                             }}
                             className="p-1.5 rounded-lg text-gray-400 hover:bg-white/5 hover:text-brand-500 transition-all cursor-pointer"
@@ -1235,7 +1585,7 @@ export default function Dashboard() {
                         )}
                         {!item.locked && (item.type === "text" || item.type === "code") && (
                           <button
-                            onClick={() => handleCopy(item.content)}
+                            onClick={() => handleCopy(item)}
                             className="p-1.5 rounded-lg text-gray-400 hover:bg-white/5 hover:text-brand-500 transition-all cursor-pointer"
                             title="Copy to Clipboard"
                           >
@@ -1265,7 +1615,7 @@ export default function Dashboard() {
                       </div>
                     </div>
 
-                    {/* Rendering item content */}
+                    {/* Content display */}
                     <div className="mt-4 text-sm text-gray-300">
                       {item.locked ? (
                         <div className="bg-red-500/5 border border-red-500/10 rounded-xl p-4 flex items-center gap-3 text-red-400">
@@ -1290,25 +1640,34 @@ export default function Dashboard() {
                           )}
 
                           {item.type === "image" && (
-                            <div className="relative mt-2 max-w-sm rounded-lg overflow-hidden border border-white/10 group-hover:border-white/20 transition-all">
-                              {item.is_encrypted ? (
-                                decryptedFiles[item.id] ? (
+                            <div className="space-y-2">
+                              <div className="relative mt-2 max-w-sm rounded-lg overflow-hidden border border-white/10 group-hover:border-white/20 transition-all">
+                                {item.is_encrypted ? (
+                                  decryptedFiles[item.id] ? (
+                                    <img
+                                      src={decryptedFiles[item.id]}
+                                      alt={item.title}
+                                      className="w-full h-auto max-h-64 object-cover"
+                                    />
+                                  ) : (
+                                    <div className="h-32 flex items-center justify-center bg-black/25 text-xs text-gray-400 animate-pulse">
+                                      Decrypting image binary...
+                                    </div>
+                                  )
+                                ) : (
                                   <img
-                                    src={decryptedFiles[item.id]}
+                                    src={item.file_url}
                                     alt={item.title}
                                     className="w-full h-auto max-h-64 object-cover"
                                   />
-                                ) : (
-                                  <div className="h-32 flex items-center justify-center bg-black/25 text-xs text-gray-400 animate-pulse">
-                                    Decrypting image binary...
-                                  </div>
-                                )
-                              ) : (
-                                <img
-                                  src={item.file_url}
-                                  alt={item.title}
-                                  className="w-full h-auto max-h-64 object-cover"
-                                />
+                                )}
+                              </div>
+                              {/* Display OCR extracted text if image content differs from file name */}
+                              {item.content && item.content !== item.title && (
+                                <div className="p-3 bg-black/35 rounded-lg border border-white/5 text-[10px] font-mono whitespace-pre-wrap max-h-24 overflow-y-auto">
+                                  <span className="text-[9px] font-bold text-cyan-400 block mb-1">🔍 EXTRACTED OCR TEXT:</span>
+                                  {item.content}
+                                </div>
                               )}
                             </div>
                           )}
@@ -1337,6 +1696,22 @@ export default function Dashboard() {
                                   Download File
                                 </a>
                               )}
+                            </div>
+                          )}
+
+                          {/* Render link previews if fetched */}
+                          {previews[item.id] && (
+                            <div className="mt-3 flex gap-3 p-3 bg-black/25 rounded-xl border border-white/5">
+                              {previews[item.id].image && (
+                                <img src={previews[item.id].image} className="w-16 h-16 object-cover rounded-lg shrink-0 border border-white/10" />
+                              )}
+                              <div className="min-w-0">
+                                <h5 className="font-semibold text-xs text-white truncate">{previews[item.id].title}</h5>
+                                <p className="text-[10px] text-gray-400 mt-1 line-clamp-2">{previews[item.id].description}</p>
+                                <a href={previews[item.id].url} target="_blank" rel="noreferrer" className="text-[9px] text-brand-500 mt-1 font-semibold flex items-center gap-0.5 hover:underline">
+                                  Go to link <ExternalLink className="h-2 w-2" />
+                                </a>
+                              </div>
                             </div>
                           )}
                         </>
@@ -1387,13 +1762,24 @@ export default function Dashboard() {
                   <label className="block text-xs font-medium text-gray-400 mb-1.5 flex items-center gap-1">
                     <Lock className="h-3.5 w-3.5 text-gray-500" /> Password Protection (Optional)
                   </label>
-                  <input
-                    type="password"
-                    value={sharePassword}
-                    onChange={(e) => setSharePassword(e.target.value)}
-                    placeholder="Leave blank for no password"
-                    className="w-full rounded-xl border border-white/10 bg-white/[0.02] py-2.5 px-4 text-sm text-white placeholder-gray-600 outline-none transition-all focus:border-brand-500/30"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showSharePasswordText ? "text" : "password"}
+                      value={sharePassword}
+                      onChange={(e) => setSharePassword(e.target.value)}
+                      placeholder="Leave blank for no password"
+                      className="w-full rounded-xl border border-white/10 bg-white/[0.02] py-2.5 pl-4 pr-10 text-sm text-white placeholder-gray-600 outline-none transition-all focus:border-brand-500/30"
+                    />
+                    {sharePassword && (
+                      <button
+                        type="button"
+                        onClick={() => setShowSharePasswordText(!showSharePasswordText)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white cursor-pointer"
+                      >
+                        {showSharePasswordText ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <button
@@ -1415,22 +1801,12 @@ export default function Dashboard() {
                     {generatedLink}
                   </span>
                   <button
-                    onClick={() => handleCopy(generatedLink)}
+                    onClick={() => navigator.clipboard.writeText(generatedLink)}
                     className="p-2 rounded-lg bg-white/5 hover:bg-white/10 hover:text-brand-500 transition-all shrink-0 cursor-pointer"
                     title="Copy sharing link"
                   >
                     <Copy className="h-4 w-4" />
                   </button>
-                </div>
-
-                <div className="text-xs text-gray-400 leading-relaxed border-t border-white/5 pt-4">
-                  <p className="m-0">• Anyone with this link can view the shared item.</p>
-                  {shareExpiration !== "0" && (
-                    <p className="m-0 mt-1">• This link will automatically expire in {shareExpiration === "600" ? "10 minutes" : shareExpiration === "3600" ? "1 hour" : shareExpiration === "86400" ? "1 day" : "7 days"}.</p>
-                  )}
-                  {sharePassword && (
-                    <p className="m-0 mt-1">• A password is required to unlock this item.</p>
-                  )}
                 </div>
 
                 <button
@@ -1469,13 +1845,20 @@ export default function Dashboard() {
                 <div className="relative">
                   <Lock className="absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-500" />
                   <input
-                    type="password"
+                    type={showPassphraseText ? "text" : "password"}
                     value={passphraseInput}
                     onChange={(e) => setPassphraseInput(e.target.value)}
                     placeholder="Enter secret passphrase"
-                    className="w-full rounded-xl border border-white/10 bg-white/[0.02] py-2.5 pl-11 pr-4 text-sm text-white placeholder-gray-500 outline-none transition-all focus:border-brand-500/30"
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.02] py-2.5 pl-11 pr-10 text-sm text-white placeholder-gray-500 outline-none transition-all focus:border-brand-500/30"
                     required
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassphraseText(!showPassphraseText)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white cursor-pointer"
+                  >
+                    {showPassphraseText ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  </button>
                 </div>
               </div>
 

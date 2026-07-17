@@ -19,6 +19,8 @@ create table if not exists clipboard_items (
   file_url text,
   is_encrypted boolean default false,
   workspace_id uuid references workspaces(id) on delete cascade,
+  self_destruct boolean default false,
+  expires_at timestamp with time zone,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
@@ -39,13 +41,14 @@ alter table workspace_members enable row level security;
 create policy "Users can select their own clipboard items"
   on clipboard_items for select
   using (
-    auth.uid() = user_id or 
+    (auth.uid() = user_id or 
     (workspace_id is not null and exists (
       select 1 from workspaces w 
       where w.id = workspace_id and (w.owner_id = auth.uid() or w.id in (
         select m.workspace_id from workspace_members m where m.user_email = auth.email()
       ))
-    ))
+    )))
+    and (expires_at is null or expires_at > now())
   );
 
 create policy "Users can insert their own clipboard items"
@@ -203,3 +206,5 @@ $$ language plpgsql;
 -- Migration updates to apply additions to existing tables if needed
 alter table clipboard_items add column if not exists workspace_id uuid references workspaces(id) on delete cascade;
 alter table clipboard_items add column if not exists is_encrypted boolean default false;
+alter table clipboard_items add column if not exists self_destruct boolean default false;
+alter table clipboard_items add column if not exists expires_at timestamp with time zone;

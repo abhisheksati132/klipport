@@ -2,13 +2,15 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { toast } from "react-hot-toast";
-import { Clipboard, Lock, Mail, User, ArrowRight } from "lucide-react";
+import { Clipboard, Lock, Mail, User, ArrowRight, Eye, EyeOff } from "lucide-react";
 
 export default function Register() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
@@ -101,13 +103,20 @@ export default function Register() {
             <div className="relative">
               <Lock className="absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-500" />
               <input
-                type="password"
+                type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="At least 6 characters"
-                className="w-full rounded-xl border border-white/10 bg-white/[0.03] py-3 pl-11 pr-4 text-white placeholder-gray-500 outline-none transition-all duration-200 focus:border-brand-500/50 focus:bg-white/[0.06] focus:ring-1 focus:ring-brand-500/30"
+                className="w-full rounded-xl border border-white/10 bg-white/[0.03] py-3 pl-11 pr-10 text-white placeholder-gray-500 outline-none transition-all duration-200 focus:border-brand-500/50 focus:bg-white/[0.06] focus:ring-1 focus:ring-brand-500/30"
                 required
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition-colors cursor-pointer"
+              >
+                {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+              </button>
             </div>
           </div>
 
@@ -116,13 +125,20 @@ export default function Register() {
             <div className="relative">
               <Lock className="absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-500" />
               <input
-                type="password"
+                type={showConfirmPassword ? "text" : "password"}
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Confirm password"
-                className="w-full rounded-xl border border-white/10 bg-white/[0.03] py-3 pl-11 pr-4 text-white placeholder-gray-500 outline-none transition-all duration-200 focus:border-brand-500/50 focus:bg-white/[0.06] focus:ring-1 focus:ring-brand-500/30"
+                className="w-full rounded-xl border border-white/10 bg-white/[0.03] py-3 pl-11 pr-10 text-white placeholder-gray-500 outline-none transition-all duration-200 focus:border-brand-500/50 focus:bg-white/[0.06] focus:ring-1 focus:ring-brand-500/30"
                 required
               />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition-colors cursor-pointer"
+              >
+                {showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+              </button>
             </div>
           </div>
 

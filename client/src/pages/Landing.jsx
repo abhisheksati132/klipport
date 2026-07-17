@@ -1,4 +1,6 @@
-import { Link } from "react-router-dom";
+import { useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { supabase } from "../lib/supabase";
 import {
   Clipboard,
   Wifi,
@@ -12,6 +14,17 @@ import {
 } from "lucide-react";
 
 export default function Landing() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    // If user is already authenticated, redirect them to their dashboard
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        navigate("/dashboard");
+      }
+    });
+  }, [navigate]);
+
   return (
     <div className="relative min-h-screen w-full max-w-full bg-dark-bg text-gray-200 overflow-x-hidden flex flex-col justify-between">
       {/* Background ambient glows in Windows 11 blue/cyan */}
