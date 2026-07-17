@@ -959,6 +959,61 @@ export default function Dashboard() {
     }
   };
 
+  const handleDelete = async (id) => {
+    const { error } = await supabase
+      .from("clipboard_items")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      toast.error("Failed to delete: " + error.message);
+    } else {
+      toast.success("Deleted from cloud");
+      
+      if (socket) {
+        if (activeWorkspace) {
+          socket.emit("workspace-clip-update", { workspace_id: activeWorkspace.id });
+        } else {
+          socket.emit("clip-update", { user_id: user.id });
+        }
+      }
+
+      setRawItems((prev) => prev.filter((item) => item.id !== id));
+    }
+  };
+
+  const handleGenerateShareLink = async (e) => {
+    e.preventDefault();
+    if (!shareItem) return;
+
+    if (shareItem.is_encrypted) {
+      toast.error("End-to-End Encrypted items cannot be shared publicly. Turn off E2EE when syncing items you wish to share.");
+      return;
+    }
+
+    setGeneratingLink(true);
+    const token = Math.random().toString(36).substring(2, 14);
+
+    try {
+      const { error } = await supabase.rpc("create_shared_link", {
+        item_id: shareItem.id,
+        token_val: token,
+        password_val: sharePassword,
+        expires_in_seconds: parseInt(shareExpiration)
+      });
+
+      if (error) throw error;
+
+      const link = `${window.location.origin}/share/${token}`;
+      setGeneratedLink(link);
+      toast.success("Shared link created!");
+    } catch (err) {
+      toast.error("Failed to create shared link: " + err.message);
+    } finally {
+      setGeneratingLink(false);
+    }
+  };
+
   const handleSetPassphrase = async (e) => {
     e.preventDefault();
     if (!passphraseInput.trim()) {
