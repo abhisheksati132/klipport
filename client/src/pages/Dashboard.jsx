@@ -42,7 +42,8 @@ import {
   Hash,
   CheckSquare,
   Square,
-  HardDrive
+  HardDrive,
+  Sparkles
 } from "lucide-react";
 
 // --- IndexedDB Configuration for Offline Caching ---
@@ -279,6 +280,13 @@ export default function Dashboard() {
   const [showSharePasswordText, setShowSharePasswordText] = useState(false);
   const [generatedLink, setGeneratedLink] = useState("");
   const [generatingLink, setGeneratingLink] = useState(false);
+
+  // AI Assistant States
+  const [showAiModal, setShowAiModal] = useState(false);
+  const [aiItem, setAiItem] = useState(null);
+  const [aiResponse, setAiResponse] = useState("");
+  const [aiCustomPrompt, setAiCustomPrompt] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
 
   // Canvas Network Map Refs
   const canvasRef = useRef(null);
@@ -1069,6 +1077,77 @@ export default function Dashboard() {
       toast.error("Failed to create shared link: " + err.message);
     } finally {
       setGeneratingLink(false);
+    }
+  };
+
+  const handleAiAction = async (actionType) => {
+    if (!aiItem) return;
+    setAiLoading(true);
+    setAiResponse("");
+
+    try {
+      const isCustom = actionType === "custom";
+      if (isCustom && !aiCustomPrompt.trim()) {
+        toast.error("Please enter a custom instruction first.");
+        setAiLoading(false);
+        return;
+      }
+
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: actionType,
+          content: aiItem.content,
+          customPrompt: isCustom ? aiCustomPrompt.trim() : undefined
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "AI processing failed.");
+
+      setAiResponse(data.result);
+      toast.success("AI operation completed successfully!");
+    } catch (err) {
+      toast.error("AI Error: " + err.message);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleSaveAiOutputToFeed = async () => {
+    if (!aiResponse || !user) return;
+    try {
+      const isCode = aiItem.type === "code" || aiResponse.trim().startsWith("```");
+      const contentVal = aiResponse.trim();
+      const calculatedSize = new Blob([contentVal]).size;
+
+      const newItem = {
+        user_id: user.id,
+        type: isCode ? "code" : "text",
+        title: `AI Assistant: ${aiItem.title || "Clip"}`,
+        content: contentVal,
+        file_url: "",
+        is_encrypted: useE2EE,
+        workspace_id: activeWorkspace ? activeWorkspace.id : null,
+        self_destruct: false,
+        expires_at: null,
+        file_size: calculatedSize
+      };
+
+      if (useE2EE) {
+        const ciphertext = await encryptText(contentVal, encryptionKey);
+        newItem.content = ciphertext;
+      }
+
+      const { error } = await supabase.from("clipboard_items").insert([newItem]);
+      if (error) throw error;
+
+      toast.success("Saved AI result to clipboard feed!");
+      setShowAiModal(false);
+      fetchItems(user.id);
+    } catch (err) {
+      toast.error("Failed to save AI output: " + err.message);
     }
   };
 
@@ -2012,6 +2091,20 @@ export default function Dashboard() {
                             <Share2 className="h-4 w-4" />
                           </button>
                         )}
+                        {!item.locked && !item.isOffline && (
+                          <button
+                            onClick={() => {
+                              setAiItem(item);
+                              setAiResponse("");
+                              setAiCustomPrompt("");
+                              setShowAiModal(true);
+                            }}
+                            className="p-1.5 rounded-lg text-brand-500 hover:bg-white/5 hover:text-brand-400 transition-all cursor-pointer"
+                            title="AI Clipboard Assist"
+                          >
+                            <Sparkles className="h-4 w-4" />
+                          </button>
+                        )}
                         {!item.locked && (item.type === "text" || item.type === "code") && (
                           <button
                             onClick={() => handleCopy(item)}
@@ -2469,6 +2562,139 @@ export default function Dashboard() {
                 {workspaceSubmitting ? "Inviting..." : `Add to ${activeWorkspace.name}`}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* AI Assistant Modal */}
+      {showAiModal && aiItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl border border-white/5 bg-dark-card p-6 shadow-2xl relative">
+            <button
+              onClick={() => setShowAiModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white transition-all cursor-pointer"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-brand-500 animate-pulse" /> AI Clipboard Copilot
+            </h3>
+            <p className="text-xs text-gray-400 mb-6 font-sans">
+              Transform, analyze, and sync your clipboard content using Gemini.
+            </p>
+
+            <div className="space-y-4">
+              {/* Selected Clip Preview */}
+              <div className="bg-black/25 p-3.5 rounded-xl border border-white/5 space-y-1">
+                <span className="text-[9px] font-bold text-gray-500 uppercase tracking-widest block">Original Content Preview:</span>
+                <p className="text-xs text-gray-300 m-0 truncate max-w-md font-mono">{aiItem.content}</p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="space-y-2">
+                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block">Quick AI Presets:</span>
+                <div className="flex flex-wrap gap-2">
+                  {aiItem.type === "text" && (
+                    <button
+                      onClick={() => handleAiAction("summarize")}
+                      disabled={aiLoading}
+                      className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-xs font-semibold text-white transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      Summarize Text
+                    </button>
+                  )}
+                  {aiItem.type === "code" && (
+                    <>
+                      <button
+                        onClick={() => handleAiAction("explain_code")}
+                        disabled={aiLoading}
+                        className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-xs font-semibold text-white transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        Explain Code
+                      </button>
+                      <button
+                        onClick={() => handleAiAction("fix_syntax")}
+                        disabled={aiLoading}
+                        className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-xs font-semibold text-white transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        Fix Syntax & Bugs
+                      </button>
+                    </>
+                  )}
+                  {aiItem.type === "image" && (
+                    <button
+                      onClick={() => handleAiAction("ocr_json")}
+                      disabled={aiLoading}
+                      className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-xs font-semibold text-white transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      Convert OCR to JSON
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Custom Prompt Box */}
+              <div className="space-y-2 pt-2 border-t border-white/5">
+                <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest font-sans">Custom AI Instructions:</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={aiCustomPrompt}
+                    onChange={(e) => setAiCustomPrompt(e.target.value)}
+                    placeholder="e.g. Translate to German, rewrite as Python, make it formal..."
+                    className="flex-1 rounded-xl border border-white/10 bg-white/[0.02] py-2 px-3.5 text-xs text-white placeholder-gray-500 outline-none focus:border-brand-500/30"
+                    disabled={aiLoading}
+                  />
+                  <button
+                    onClick={() => handleAiAction("custom")}
+                    disabled={aiLoading}
+                    className="rounded-xl bg-brand-600 hover:bg-brand-500 px-4 text-xs font-semibold text-white cursor-pointer disabled:opacity-50 font-sans"
+                  >
+                    Run
+                  </button>
+                </div>
+              </div>
+
+              {/* AI Response Output */}
+              {(aiLoading || aiResponse) && (
+                <div className="space-y-2 pt-4 border-t border-white/5">
+                  <span className="text-[10px] font-bold text-brand-500 uppercase tracking-widest flex items-center gap-1 font-sans">
+                    <Sparkles className="h-3.5 w-3.5 animate-spin" /> AI Copilot Result:
+                  </span>
+                  
+                  {aiLoading ? (
+                    <div className="rounded-xl border border-white/5 bg-black/25 p-4 animate-pulse space-y-2 h-28 flex flex-col justify-center items-center text-xs text-gray-500">
+                      <span>Gemini is thinking...</span>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-white/5 bg-black/35 p-4 space-y-3">
+                      <div className="text-xs text-gray-300 font-mono whitespace-pre-wrap max-h-40 overflow-y-auto leading-relaxed">
+                        {aiResponse}
+                      </div>
+
+                      <div className="flex gap-2 justify-end pt-2 border-t border-white/5 font-sans">
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(aiResponse);
+                            toast.success("AI output copied!");
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-[10px] font-semibold text-gray-300 hover:text-white transition-all cursor-pointer"
+                        >
+                          Copy Output
+                        </button>
+                        <button
+                          onClick={handleSaveAiOutputToFeed}
+                          className="px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-[10px] font-semibold text-white transition-all cursor-pointer"
+                        >
+                          Save as New Clip
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
