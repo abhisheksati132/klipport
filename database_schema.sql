@@ -274,3 +274,52 @@ $$ language plpgsql;
 alter table clipboard_items add column if not exists self_destruct boolean default false;
 alter table clipboard_items add column if not exists expires_at timestamp with time zone;
 alter table clipboard_items add column if not exists file_size integer;
+alter table clipboard_items add column if not exists is_deleted boolean default false;
+alter table clipboard_items add column if not exists deleted_at timestamp with time zone;
+
+-- Create user_public_keys table
+create table if not exists user_public_keys (
+  user_id uuid references auth.users(id) on delete cascade primary key,
+  user_email text unique not null,
+  public_key_jwk jsonb not null,
+  encrypted_private_key text not null,
+  private_key_iv text not null,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+alter table user_public_keys enable row level security;
+
+create policy "Anyone can read public keys"
+  on user_public_keys for select
+  using (true);
+
+create policy "Users can upsert their own public key"
+  on user_public_keys for insert
+  with check (auth.uid() = user_id);
+
+-- Create workspace_vault_keys table
+create table if not exists workspace_vault_keys (
+  id uuid default gen_random_uuid() primary key,
+  workspace_id uuid references workspaces(id) on delete cascade not null,
+  user_id uuid references auth.users(id) on delete cascade not null,
+  encrypted_key text not null,
+  iv text not null,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  unique (workspace_id, user_id)
+);
+
+alter table workspace_vault_keys enable row level security;
+
+create policy "Users can view their encrypted workspace keys"
+  on workspace_vault_keys for select
+  using (auth.uid() = user_id);
+
+create policy "Users can insert workspace keys"
+  on workspace_vault_keys for insert
+  with check (true);
+
+-- Apply private key storage migrations to existing tables
+alter table user_public_keys add column if not exists encrypted_private_key text;
+alter table user_public_keys add column if not exists private_key_iv text;
+alter table user_public_keys add column if not exists user_email text;
+

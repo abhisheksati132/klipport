@@ -3,7 +3,20 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { toast } from "react-hot-toast";
 import { io } from "socket.io-client";
-import { deriveKey, encryptText, decryptText, encryptFile, decryptFile } from "../utils/crypto";
+import {
+  deriveKey,
+  encryptText,
+  decryptText,
+  encryptFile,
+  decryptFile,
+  generateAsymmetricKeyPair,
+  exportPublicKey,
+  importPublicKey,
+  encryptWorkspaceKey,
+  decryptWorkspaceKey,
+  encryptPrivateKey,
+  decryptPrivateKey
+} from "../utils/crypto";
 import Tesseract from "tesseract.js";
 import {
   Clipboard,
@@ -43,13 +56,15 @@ import {
   CheckSquare,
   Square,
   HardDrive,
-  Sparkles
+  Sparkles,
+  RotateCcw,
+  UserCheck
 } from "lucide-react";
 
 // --- IndexedDB Configuration for Offline Caching ---
 const openIndexedDB = () => {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open("ClipSyncOffline", 2); // Version 2 to support history caching
+    const request = indexedDB.open("ClipSyncOffline", 2); // Version 2 supporting cache
     request.onupgradeneeded = (e) => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains("offline_clips")) {
@@ -69,15 +84,10 @@ const cacheHistoryClips = async (clips) => {
   return new Promise((resolve, reject) => {
     const transaction = db.transaction("history_cache", "readwrite");
     const store = transaction.objectStore("history_cache");
-    
-    // Clear old cached history
     store.clear();
-    
-    // Add all new clips
     clips.forEach((clip) => {
       store.put(clip);
     });
-    
     transaction.oncomplete = () => resolve();
     transaction.onerror = (e) => reject(e.target.error);
   });
@@ -128,12 +138,12 @@ const deleteOfflineClip = async (id) => {
 };
 
 // --- Custom Code Highlighter ---
-function highlightCode(code, lang) {
+function highlightCode(code) {
   if (!code) return "";
   let escaped = code
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt bridge;");
 
   const keywords = /\b(const|let|var|function|return|import|export|from|def|class|if|else|for|while|try|catch|async|await|default|public|private|static|void|int|float|string|boolean|null|true|false)\b/g;
   const strings = /(["'`])(.*?)\1/g;
@@ -218,6 +228,11 @@ export default function Dashboard() {
   const [socket, setSocket] = useState(null);
   const [connected, setConnected] = useState(false);
 
+  // Real-time Presence States
+  const [presenceList, setPresenceList] = useState([]);
+  const [typingStatus, setTypingStatus] = useState("");
+  const typingTimerRef = useRef(null);
+
   // E2EE States
   const [passphrase, setPassphrase] = useState("");
   const [encryptionKey, setEncryptionKey] = useState(null);
@@ -226,6 +241,18 @@ export default function Dashboard() {
   const [showPassphraseText, setShowPassphraseText] = useState(false);
   const [useE2EE, setUseE2EE] = useState(false);
   const [decryptedFiles, setDecryptedFiles] = useState({});
+
+  // Asymmetric E2EE Vault Keys (RSA)
+  const [asymmetricPrivateKey, setAsymmetricPrivateKey] = useState(null);
+  const [asymmetricPublicKey, setAsymmetricPublicKey] = useState(null);
+  const [workspaceEncryptionKey, setWorkspaceEncryptionKey] = useState(null);
+
+  // AI Assistant States
+  const [showAiModal, setShowAiModal] = useState(false);
+  const [aiItem, setAiItem] = useState(null);
+  const [aiResponse, setAiResponse] = useState("");
+  const [aiCustomPrompt, setAiCustomPrompt] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
 
   // CLI Token Manager states
   const [cliTokens, setCliTokens] = useState([]);
@@ -260,6 +287,9 @@ export default function Dashboard() {
   // Rich Link Previews Map
   const [previews, setPreviews] = useState({});
 
+  // Copy success indicator state
+  const [copiedId, setCopiedId] = useState(null);
+
   // Connected terminals simulation count
   const [connectedTerminals, setConnectedTerminals] = useState(1);
 
@@ -280,13 +310,6 @@ export default function Dashboard() {
   const [showSharePasswordText, setShowSharePasswordText] = useState(false);
   const [generatedLink, setGeneratedLink] = useState("");
   const [generatingLink, setGeneratingLink] = useState(false);
-
-  // AI Assistant States
-  const [showAiModal, setShowAiModal] = useState(false);
-  const [aiItem, setAiItem] = useState(null);
-  const [aiResponse, setAiResponse] = useState("");
-  const [aiCustomPrompt, setAiCustomPrompt] = useState("");
-  const [aiLoading, setAiLoading] = useState(false);
 
   // Canvas Network Map Refs
   const canvasRef = useRef(null);
@@ -322,6 +345,16 @@ export default function Dashboard() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  // Broadcast typing presence
+  const handleTypingBroadcast = () => {
+    if (socket && user) {
+      socket.emit("typing", {
+        name: user.user_metadata?.full_name || user.email.split("@")[0],
+        workspace_id: activeWorkspace ? activeWorkspace.id : null
+      });
+    }
+  };
+
   // HTML5 Canvas Orbital Map Loop
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -338,7 +371,7 @@ export default function Dashboard() {
     ctx.scale(dpr, dpr);
 
     const devices = [
-      { name: "Browser", angle: 0, radius: 60, speed: 0.015, color: "#60cdff" },
+      { name: "Browser", angle: 0, radius: 60, speed: 0.015, color: "#0078d4" },
       { name: "Terminal", angle: (2 * Math.PI) / 3, radius: 60, speed: 0.012, color: "#10b981" },
       { name: "Mobile", angle: (4 * Math.PI) / 3, radius: 60, speed: 0.018, color: "#f59e0b" }
     ];
@@ -351,15 +384,15 @@ export default function Dashboard() {
 
       ctx.beginPath();
       ctx.arc(centerX, centerY, 60, 0, 2 * Math.PI);
-      ctx.strokeStyle = "rgba(255,255,255,0.05)";
+      ctx.strokeStyle = "rgba(255,255,255,0.03)";
       ctx.lineWidth = 1;
       ctx.stroke();
 
       ctx.beginPath();
       ctx.arc(centerX, centerY, 15, 0, 2 * Math.PI);
-      ctx.fillStyle = "rgba(0,120,212,0.15)";
-      ctx.strokeStyle = "#0078d4";
-      ctx.lineWidth = 2;
+      ctx.fillStyle = "rgba(0,120,212,0.1)";
+      ctx.strokeStyle = "rgba(0,120,212,0.4)";
+      ctx.lineWidth = 1.5;
       ctx.fill();
       ctx.stroke();
       
@@ -375,13 +408,13 @@ export default function Dashboard() {
         const devY = centerY + Math.sin(dev.angle) * dev.radius;
 
         ctx.beginPath();
-        ctx.arc(devX, devY, 8, 0, 2 * Math.PI);
+        ctx.arc(devX, devY, 6, 0, 2 * Math.PI);
         ctx.fillStyle = dev.color;
         ctx.fill();
 
-        ctx.fillStyle = "rgba(255,255,255,0.6)";
-        ctx.font = "8px monospace";
-        ctx.fillText(dev.name, devX, devY - 14);
+        ctx.fillStyle = "rgba(255,255,255,0.4)";
+        ctx.font = "7px monospace";
+        ctx.fillText(dev.name, devX, devY - 12);
       });
 
       particlesRef.current = particlesRef.current.filter((particle) => {
@@ -398,7 +431,7 @@ export default function Dashboard() {
                 targetY: devY,
                 t: 0,
                 speed: 0.05,
-                color: "#60cdff",
+                color: "#0078d4",
                 direction: "out"
               });
             });
@@ -410,12 +443,9 @@ export default function Dashboard() {
         const currentY = particle.y + (particle.targetY - particle.y) * particle.t;
 
         ctx.beginPath();
-        ctx.arc(currentX, currentY, 4, 0, 2 * Math.PI);
+        ctx.arc(currentX, currentY, 3, 0, 2 * Math.PI);
         ctx.fillStyle = particle.color;
-        ctx.shadowColor = particle.color;
-        ctx.shadowBlur = 10;
         ctx.fill();
-        ctx.shadowBlur = 0;
 
         return true;
       });
@@ -601,6 +631,20 @@ export default function Dashboard() {
             const key = await deriveKey(storedPassphrase);
             setEncryptionKey(key);
             setUseE2EE(true);
+            
+            // Decrypt local RSA asymmetric keys if they exist in DB
+            const { data: pkData } = await supabase
+              .from("user_public_keys")
+              .select("*")
+              .eq("user_id", session.user.id)
+              .single();
+
+            if (pkData) {
+              const privKey = await decryptPrivateKey(pkData.encrypted_private_key, key);
+              const pubKey = await importPublicKey(pkData.public_key_jwk);
+              setAsymmetricPrivateKey(privKey);
+              setAsymmetricPublicKey(pubKey);
+            }
           } catch (err) {
             console.error("Failed to auto-derive key:", err);
           }
@@ -616,22 +660,41 @@ export default function Dashboard() {
         socketInstance.on("connect", () => {
           setConnected(true);
           socketInstance.emit("join-room", session.user.id);
-          setConnectedTerminals(Math.floor(Math.random() * 2) + 2);
+          
+          // Emit presence join details
+          socketInstance.emit("presence-join", {
+            user_id: session.user.id,
+            email: session.user.email,
+            device: "Web Browser"
+          });
         });
 
         socketInstance.on("disconnect", () => {
           setConnected(false);
-          setConnectedTerminals(1);
+          setPresenceList([]);
         });
 
-        socketInstance.on("clip-sync", (data) => {
+        // Socket.io Real-time Presence handlers
+        socketInstance.on("presence-list", (list) => {
+          setPresenceList(list || []);
+        });
+
+        socketInstance.on("typing-broadcast", (data) => {
+          setTypingStatus(`${data.name} is typing...`);
+          if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+          typingTimerRef.current = setTimeout(() => {
+            setTypingStatus("");
+          }, 2000);
+        });
+
+        socketInstance.on("clip-sync", () => {
           triggerSyncAnimation("Terminal");
           triggerBrowserNotification("Personal Clip Sync", "Your personal clipboard was updated!");
           toast.success("Personal Clipboard synced!", { icon: "🔄" });
           fetchItems(session.user.id);
         });
 
-        socketInstance.on("workspace-clip-sync", (data) => {
+        socketInstance.on("workspace-clip-sync", () => {
           triggerSyncAnimation("Mobile");
           triggerBrowserNotification("Team Sync", "A shared workspace clipboard was updated!");
           toast.success("Shared Workspace synced!", { icon: "👥" });
@@ -648,11 +711,81 @@ export default function Dashboard() {
       if (socketInstance) {
         socketInstance.disconnect();
       }
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     };
   }, [navigate, backendUrl]);
 
+  // Load decrypt keys when switching workspaces
+  useEffect(() => {
+    const handleWorkspaceVaultCheck = async () => {
+      if (!activeWorkspace || !asymmetricPrivateKey || !user) {
+        setWorkspaceEncryptionKey(null);
+        return;
+      }
+
+      try {
+        const { data: vaultData, error } = await supabase
+          .from("workspace_vault_keys")
+          .select("*")
+          .eq("workspace_id", activeWorkspace.id)
+          .eq("user_id", user.id)
+          .single();
+
+        if (error) {
+          // If Owner and key not found, generate it!
+          if (activeWorkspace.owner_id === user.id) {
+            const rawKeyBytes = window.crypto.getRandomValues(new Uint8Array(32));
+            const importedKey = await window.crypto.subtle.importKey(
+              "raw",
+              rawKeyBytes,
+              { name: "AES-GCM", length: 256 },
+              true,
+              ["encrypt", "decrypt"]
+            );
+
+            const encryptedBase64 = await encryptWorkspaceKey(rawKeyBytes, asymmetricPublicKey);
+            
+            const { error: insertError } = await supabase
+              .from("workspace_vault_keys")
+              .insert([{
+                workspace_id: activeWorkspace.id,
+                user_id: user.id,
+                encrypted_key: encryptedBase64,
+                iv: "default"
+              }]);
+
+            if (insertError) throw insertError;
+
+            setWorkspaceEncryptionKey(importedKey);
+          } else {
+            setWorkspaceEncryptionKey(null);
+          }
+        } else {
+          // Key exists, decrypt it
+          const rawKeyBuffer = await decryptWorkspaceKey(vaultData.encrypted_key, asymmetricPrivateKey);
+          const importedKey = await window.crypto.subtle.importKey(
+            "raw",
+            rawKeyBuffer,
+            { name: "AES-GCM", length: 256 },
+            true,
+            ["encrypt", "decrypt"]
+          );
+          setWorkspaceEncryptionKey(importedKey);
+        }
+      } catch (err) {
+        console.error("Failed to load workspace encryption keys:", err);
+        setWorkspaceEncryptionKey(null);
+      }
+    };
+
+    handleWorkspaceVaultCheck();
+  }, [activeWorkspace, asymmetricPrivateKey, user]);
+
+  // Decrypt items feed
   useEffect(() => {
     const processItems = async () => {
+      const currentDecryptionKey = activeWorkspace ? workspaceEncryptionKey : encryptionKey;
+
       const dbClips = await Promise.all(
         rawItems.map(async (item) => {
           if (item.type === "text" && !item.is_encrypted) {
@@ -665,7 +798,7 @@ export default function Dashboard() {
 
           if (!item.is_encrypted) return item;
 
-          if (!encryptionKey) {
+          if (!currentDecryptionKey) {
             return {
               ...item,
               title: item.title,
@@ -676,7 +809,7 @@ export default function Dashboard() {
 
           try {
             if (item.type === "text" || item.type === "code") {
-              const decryptedContent = await decryptText(item.content, encryptionKey);
+              const decryptedContent = await decryptText(item.content, currentDecryptionKey);
               const urlRegex = /(https?:\/\/[^\s]+)/g;
               const match = decryptedContent?.match(urlRegex);
               if (match) {
@@ -684,7 +817,7 @@ export default function Dashboard() {
               }
               return { ...item, content: decryptedContent, locked: false };
             } else {
-              triggerFileDecryption(item);
+              triggerFileDecryption(item, currentDecryptionKey);
               return { ...item, locked: false };
             }
           } catch (err) {
@@ -710,24 +843,21 @@ export default function Dashboard() {
     };
 
     processItems();
-  }, [rawItems, encryptionKey, activeWorkspace]);
+  }, [rawItems, encryptionKey, workspaceEncryptionKey, activeWorkspace]);
 
   const triggerBrowserNotification = (title, body) => {
     if ("Notification" in window && Notification.permission === "granted") {
-      new Notification(title, {
-        body,
-        icon: "/logo.svg"
-      });
+      new Notification(title, { body, icon: "/logo.svg" });
     }
   };
 
-  const triggerFileDecryption = async (item) => {
+  const triggerFileDecryption = async (item, keyToUse) => {
     if (decryptedFiles[item.id]) return;
 
     try {
       const response = await fetch(item.file_url);
       const encryptedBuffer = await response.arrayBuffer();
-      const decryptedBuffer = await decryptFile(encryptedBuffer, encryptionKey);
+      const decryptedBuffer = await decryptFile(encryptedBuffer, keyToUse);
       
       const blobType = item.type === "image" ? "image/*" : "application/octet-stream";
       const blob = new Blob([decryptedBuffer], { type: blobType });
@@ -762,8 +892,9 @@ export default function Dashboard() {
 
     try {
       let finalContent = newContent;
-      if (item.is_encrypted) {
-        finalContent = await encryptText(newContent, encryptionKey);
+      const keyToUse = activeWorkspace ? workspaceEncryptionKey : encryptionKey;
+      if (item.is_encrypted && keyToUse) {
+        finalContent = await encryptText(newContent, keyToUse);
       }
       
       const { error } = await supabase
@@ -969,17 +1100,56 @@ export default function Dashboard() {
 
   const handleInviteMember = async (e) => {
     e.preventDefault();
-    if (!inviteEmail.trim() || !activeWorkspace) return;
+    if (!inviteEmail.trim() || !activeWorkspace || !user) return;
 
     setWorkspaceSubmitting(true);
     try {
-      const { error } = await supabase
+      // 1. Fetch user's public key registry
+      const { data: pkData, error: pkError } = await supabase
+        .from("user_public_keys")
+        .select("*")
+        .eq("user_email", inviteEmail.trim().toLowerCase())
+        .single();
+
+      if (pkError || !pkData) {
+        toast.error("teammate public keys not found. They must set up their E2EE passphrase first.");
+        setWorkspaceSubmitting(false);
+        return;
+      }
+
+      // 2. Add teammate to workspace_members
+      const { error: inviteError } = await supabase
         .from("workspace_members")
         .insert([{ workspace_id: activeWorkspace.id, user_email: inviteEmail.trim().toLowerCase() }]);
 
-      if (error) throw error;
+      if (inviteError) throw inviteError;
 
-      toast.success(`Invitation sent to ${inviteEmail}!`);
+      // 3. Encrypt the workspace symmetric key using the teammate's public key
+      // First, get owner's decrypted workspace key
+      const { data: ownerVault } = await supabase
+        .from("workspace_vault_keys")
+        .select("*")
+        .eq("workspace_id", activeWorkspace.id)
+        .eq("user_id", user.id)
+        .single();
+
+      if (ownerVault && asymmetricPrivateKey) {
+        const rawKeyBuffer = await decryptWorkspaceKey(ownerVault.encrypted_key, asymmetricPrivateKey);
+        const importedPeerPubKey = await importPublicKey(pkData.public_key_jwk);
+        const encryptedForPeer = await encryptWorkspaceKey(new Uint8Array(rawKeyBuffer), importedPeerPubKey);
+        
+        // Save encrypted key in vault for teammate
+        await supabase
+          .from("workspace_vault_keys")
+          .insert([{
+            workspace_id: activeWorkspace.id,
+            user_id: pkData.user_id,
+            encrypted_key: encryptedForPeer,
+            iv: "default"
+          }]);
+      }
+
+      toast.success(`Successfully invited and shared E2EE keys with ${inviteEmail}!`);
       setInviteEmail("");
       setShowInviteModal(false);
     } catch (err) {
@@ -1002,39 +1172,49 @@ export default function Dashboard() {
     }
   };
 
-  const handleLogout = async () => {
-    if (socket) socket.disconnect();
-    sessionStorage.removeItem("clipsync_passphrase");
-    await supabase.auth.signOut();
-    toast.success("Logged out successfully");
-    navigate("/");
-  };
-
   const handleCopy = async (item) => {
     navigator.clipboard.writeText(item.content);
-    toast.success("Copied to clipboard!", { icon: "📋" });
+    setCopiedId(item.id);
+    setTimeout(() => setCopiedId(null), 1500);
 
     if (item.self_destruct && !item.isOffline) {
-      toast.loading("Self-destructing clipboard record...", { id: "selfdestruct" });
       const { error } = await supabase.from("clipboard_items").delete().eq("id", item.id);
-      toast.dismiss("selfdestruct");
       if (!error) {
         toast.error("Clip self-destructed permanently!", { icon: "🔥" });
         setRawItems((prev) => prev.filter((i) => i.id !== item.id));
       }
+    } else {
+      toast.success("Copied to clipboard!", { icon: "📋" });
     }
   };
 
   const handleDelete = async (id) => {
+    // If we are in the trash tab, delete permanently!
+    if (activeTab === "trash") {
+      const { error } = await supabase
+        .from("clipboard_items")
+        .delete()
+        .eq("id", id);
+
+      if (error) {
+        toast.error("Failed to purge item: " + error.message);
+      } else {
+        toast.success("Permanently purged clip");
+        setRawItems((prev) => prev.filter((item) => item.id !== id));
+      }
+      return;
+    }
+
+    // Soft delete items (Move to Trash)
     const { error } = await supabase
       .from("clipboard_items")
-      .delete()
+      .update({ is_deleted: true, deleted_at: new Date().toISOString() })
       .eq("id", id);
 
     if (error) {
       toast.error("Failed to delete: " + error.message);
     } else {
-      toast.success("Deleted from cloud");
+      toast.success("Moved clip to Trash Bin", { icon: "🗑️" });
       
       if (socket) {
         if (activeWorkspace) {
@@ -1044,7 +1224,30 @@ export default function Dashboard() {
         }
       }
 
-      setRawItems((prev) => prev.filter((item) => item.id !== id));
+      setRawItems((prev) => prev.map((item) => item.id === id ? { ...item, is_deleted: true } : item));
+    }
+  };
+
+  const handleRestore = async (id) => {
+    const { error } = await supabase
+      .from("clipboard_items")
+      .update({ is_deleted: false, deleted_at: null })
+      .eq("id", id);
+
+    if (error) {
+      toast.error("Failed to restore: " + error.message);
+    } else {
+      toast.success("Restored clip to dashboard!", { icon: "🔄" });
+      
+      if (socket) {
+        if (activeWorkspace) {
+          socket.emit("workspace-clip-update", { workspace_id: activeWorkspace.id });
+        } else {
+          socket.emit("clip-update", { user_id: user.id });
+        }
+      }
+
+      setRawItems((prev) => prev.map((item) => item.id === id ? { ...item, is_deleted: false } : item));
     }
   };
 
@@ -1080,80 +1283,9 @@ export default function Dashboard() {
     }
   };
 
-  const handleAiAction = async (actionType) => {
-    if (!aiItem) return;
-    setAiLoading(true);
-    setAiResponse("");
-
-    try {
-      const isCustom = actionType === "custom";
-      if (isCustom && !aiCustomPrompt.trim()) {
-        toast.error("Please enter a custom instruction first.");
-        setAiLoading(false);
-        return;
-      }
-
-      const res = await fetch("/api/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: actionType,
-          content: aiItem.content,
-          customPrompt: isCustom ? aiCustomPrompt.trim() : undefined
-        })
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "AI processing failed.");
-
-      setAiResponse(data.result);
-      toast.success("AI operation completed successfully!");
-    } catch (err) {
-      toast.error("AI Error: " + err.message);
-    } finally {
-      setAiLoading(false);
-    }
-  };
-
-  const handleSaveAiOutputToFeed = async () => {
-    if (!aiResponse || !user) return;
-    try {
-      const isCode = aiItem.type === "code" || aiResponse.trim().startsWith("```");
-      const contentVal = aiResponse.trim();
-      const calculatedSize = new Blob([contentVal]).size;
-
-      const newItem = {
-        user_id: user.id,
-        type: isCode ? "code" : "text",
-        title: `AI Assistant: ${aiItem.title || "Clip"}`,
-        content: contentVal,
-        file_url: "",
-        is_encrypted: useE2EE,
-        workspace_id: activeWorkspace ? activeWorkspace.id : null,
-        self_destruct: false,
-        expires_at: null,
-        file_size: calculatedSize
-      };
-
-      if (useE2EE) {
-        const ciphertext = await encryptText(contentVal, encryptionKey);
-        newItem.content = ciphertext;
-      }
-
-      const { error } = await supabase.from("clipboard_items").insert([newItem]);
-      if (error) throw error;
-
-      toast.success("Saved AI result to clipboard feed!");
-      setShowAiModal(false);
-      fetchItems(user.id);
-    } catch (err) {
-      toast.error("Failed to save AI output: " + err.message);
-    }
-  };
-
   const handleSetPassphrase = async (e) => {
     e.preventDefault();
-    if (!passphraseInput.trim()) {
+    if (!passphraseInput.trim() || !user) {
       toast.error("Please enter a passphrase");
       return;
     }
@@ -1166,13 +1298,47 @@ export default function Dashboard() {
       setUseE2EE(true);
       setShowPassphraseModal(false);
       toast.success("E2EE Passphrase Set Successfully!", { icon: "🔒" });
+
+      // Generate or retrieve public/private asymmetric keys registry
+      const { data: pkData } = await supabase
+        .from("user_public_keys")
+        .select("*")
+        .eq("user_id", user.id)
+        .single();
+
+      if (!pkData) {
+        // Generate new keypair
+        const pair = await generateAsymmetricKeyPair();
+        const jwk = await exportPublicKey(pair.publicKey);
+        const encryptedPriv = await encryptPrivateKey(pair.privateKey, key);
+
+        await supabase
+          .from("user_public_keys")
+          .insert([{
+            user_id: user.id,
+            user_email: user.email.toLowerCase(),
+            public_key_jwk: jwk,
+            encrypted_private_key: encryptedPriv.encryptedKey,
+            private_key_iv: encryptedPriv.iv
+          }]);
+
+        setAsymmetricPrivateKey(pair.privateKey);
+        setAsymmetricPublicKey(pair.publicKey);
+      } else {
+        const privKey = await decryptPrivateKey(pkData.encrypted_private_key, key);
+        const pubKey = await importPublicKey(pkData.public_key_jwk);
+        setAsymmetricPrivateKey(privKey);
+        setAsymmetricPublicKey(pubKey);
+      }
     } catch (err) {
-      toast.error("Failed to derive encryption key: " + err.message);
+      toast.error("Failed to derive E2EE keys: " + err.message);
     }
   };
 
   const handleClearPassphrase = () => {
     setEncryptionKey(null);
+    setAsymmetricPrivateKey(null);
+    setAsymmetricPublicKey(null);
     setPassphrase("");
     sessionStorage.removeItem("clipsync_passphrase");
     setUseE2EE(false);
@@ -1218,7 +1384,9 @@ export default function Dashboard() {
     e.preventDefault();
     if (!user) return;
 
-    if (useE2EE && !encryptionKey) {
+    const currentKeyToUse = activeWorkspace ? workspaceEncryptionKey : encryptionKey;
+
+    if (useE2EE && !currentKeyToUse) {
       toast.error("Please set your E2EE passphrase first to encrypt items.");
       return;
     }
@@ -1256,7 +1424,7 @@ export default function Dashboard() {
         }
 
         toast.loading("Uploading file to Supabase...", { id: "upload" });
-        fileUrlVal = await handleFileUpload(user.id, useE2EE ? encryptionKey : null);
+        fileUrlVal = await handleFileUpload(user.id, useE2EE ? currentKeyToUse : null);
         contentVal = file.name;
         toast.dismiss("upload");
 
@@ -1298,15 +1466,16 @@ export default function Dashboard() {
         workspace_id: activeWorkspace ? activeWorkspace.id : null,
         self_destruct: selfDestruct,
         expires_at: finalExpiresAt,
-        file_size: calculatedSize
+        file_size: calculatedSize,
+        is_deleted: false
       };
 
       if (itemType === "code") {
         newItem.title = `${title.trim() || "Code Snippet"} [${codeLanguage}]`;
       }
 
-      if (useE2EE && (itemType === "text" || itemType === "code")) {
-        const ciphertext = await encryptText(contentVal, encryptionKey);
+      if (useE2EE && (itemType === "text" || itemType === "code") && currentKeyToUse) {
+        const ciphertext = await encryptText(contentVal, currentKeyToUse);
         newItem.content = ciphertext;
       }
 
@@ -1354,12 +1523,93 @@ export default function Dashboard() {
     }
   };
 
+  const handleAiAction = async (actionType) => {
+    if (!aiItem) return;
+    setAiLoading(true);
+    setAiResponse("");
+
+    try {
+      const isCustom = actionType === "custom";
+      if (isCustom && !aiCustomPrompt.trim()) {
+        toast.error("Please enter a custom instruction first.");
+        setAiLoading(false);
+        return;
+      }
+
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: actionType,
+          content: aiItem.content,
+          customPrompt: isCustom ? aiCustomPrompt.trim() : undefined
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "AI processing failed.");
+
+      setAiResponse(data.result);
+      toast.success("AI operation completed successfully!");
+    } catch (err) {
+      toast.error("AI Error: " + err.message);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleSaveAiOutputToFeed = async () => {
+    if (!aiResponse || !user) return;
+    try {
+      const isCode = aiItem.type === "code" || aiResponse.trim().startsWith("```");
+      const contentVal = aiResponse.trim();
+      const calculatedSize = new Blob([contentVal]).size;
+      const keyToUse = activeWorkspace ? workspaceEncryptionKey : encryptionKey;
+
+      const newItem = {
+        user_id: user.id,
+        type: isCode ? "code" : "text",
+        title: `AI Assistant: ${aiItem.title || "Clip"}`,
+        content: contentVal,
+        file_url: "",
+        is_encrypted: useE2EE,
+        workspace_id: activeWorkspace ? activeWorkspace.id : null,
+        self_destruct: false,
+        expires_at: null,
+        file_size: calculatedSize,
+        is_deleted: false
+      };
+
+      if (useE2EE && keyToUse) {
+        const ciphertext = await encryptText(contentVal, keyToUse);
+        newItem.content = ciphertext;
+      }
+
+      const { error } = await supabase.from("clipboard_items").insert([newItem]);
+      if (error) throw error;
+
+      toast.success("Saved AI result to clipboard feed!");
+      setShowAiModal(false);
+      fetchItems(user.id);
+    } catch (err) {
+      toast.error("Failed to save AI output: " + err.message);
+    }
+  };
+
+  const handleLogout = async () => {
+    if (socket) socket.disconnect();
+    sessionStorage.removeItem("clipsync_passphrase");
+    await supabase.auth.signOut();
+    toast.success("Logged out successfully");
+    navigate("/");
+  };
+
   const getContributionGrid = () => {
     const calendarDays = [];
     const today = new Date();
     
     const counts = {};
-    rawItems.forEach(item => {
+    rawItems.filter(item => !item.is_deleted).forEach(item => {
       const day = new Date(item.created_at).toISOString().split("T")[0];
       counts[day] = (counts[day] || 0) + 1;
     });
@@ -1378,6 +1628,10 @@ export default function Dashboard() {
 
   const filteredItems = items
     .filter((item) => {
+      // Filter out deleted items unless activeTab is "trash"
+      if (activeTab === "trash") return item.is_deleted === true;
+      if (item.is_deleted) return false;
+
       if (activeTab === "all") return true;
       if (activeTab === "text") return item.type === "text";
       if (activeTab === "code") return item.type === "code";
@@ -1397,22 +1651,15 @@ export default function Dashboard() {
     });
 
   const getIcon = (type, locked) => {
-    if (locked) {
-      return <Lock className="h-5 w-5 text-red-400" />;
-    }
+    if (locked) return <Lock className="h-5 w-5 text-red-400" />;
     switch (type) {
-      case "text":
-        return <FileText className="h-5 w-5 text-blue-400" />;
-      case "code":
-        return <Code className="h-5 w-5 text-emerald-400" />;
-      case "image":
-        return <ImageIcon className="h-5 w-5 text-cyan-400" />;
-      default:
-        return <FileIcon className="h-5 w-5 text-orange-400" />;
+      case "text": return <FileText className="h-5 w-5 text-blue-400" />;
+      case "code": return <Code className="h-5 w-5 text-emerald-400" />;
+      case "image": return <ImageIcon className="h-5 w-5 text-cyan-400" />;
+      default: return <FileIcon className="h-5 w-5 text-orange-400" />;
     }
   };
 
-  // Shared Sidebar controls drawer content on Mobile, horizontal top row on Desktop
   const MobileDrawerContent = () => (
     <div className="flex flex-col justify-between h-full space-y-6">
       <div className="space-y-5">
@@ -1426,7 +1673,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Workspaces list */}
         <div className="space-y-2">
           <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest">Active Workspace</label>
           <div className="space-y-1">
@@ -1461,7 +1707,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* CLI Tokens */}
         <button
           onClick={() => {
             setGeneratedTokenVal("");
@@ -1473,7 +1718,6 @@ export default function Dashboard() {
           <Key className="h-3.5 w-3.5" /> Manage CLI Tokens
         </button>
 
-        {/* E2EE */}
         <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 text-center">
           <div className="flex items-center justify-center gap-2 mb-2">
             <Shield className={`h-5 w-5 ${encryptionKey ? "text-emerald-400" : "text-gray-500"}`} />
@@ -1527,10 +1771,18 @@ export default function Dashboard() {
 
   return (
     <div 
-      className="flex flex-col min-h-screen w-full max-w-full bg-dark-bg text-gray-200 overflow-x-hidden relative font-sans"
+      className="flex flex-col min-h-screen w-full max-w-full bg-[#070709] text-gray-200 overflow-x-hidden relative font-sans"
       onDragEnter={handleDragEnter}
       onDragOver={(e) => e.preventDefault()}
+      style={{
+        backgroundImage: "radial-gradient(rgba(255,255,255,0.015) 1px, transparent 0)",
+        backgroundSize: "24px 24px"
+      }}
     >
+      {/* Subtle Premium Spotlights */}
+      <div className="fixed top-[-10%] right-[-5%] w-[400px] h-[400px] rounded-full bg-brand-500/5 blur-[120px] pointer-events-none z-0" />
+      <div className="fixed bottom-[-10%] left-[-5%] w-[400px] h-[400px] rounded-full bg-cyan-500/5 blur-[120px] pointer-events-none z-0" />
+
       {/* Drag & Drop Full-screen Overlay */}
       {isDragging && (
         <div 
@@ -1557,7 +1809,6 @@ export default function Dashboard() {
             <span className="text-lg font-bold text-white tracking-tight">ClipSync</span>
           </div>
 
-          {/* Active Workspace select dropdown */}
           <div className="relative">
             <select
               value={activeWorkspace ? activeWorkspace.id : ""}
@@ -1606,7 +1857,6 @@ export default function Dashboard() {
             {encryptionKey ? "E2EE Active" : "E2EE Inactive"}
           </button>
 
-          {/* CLI key manager */}
           <button
             onClick={() => {
               setGeneratedTokenVal("");
@@ -1618,11 +1868,32 @@ export default function Dashboard() {
             CLI Keys
           </button>
 
-          {/* Connected Terminals stats */}
-          <div className="rounded-xl bg-white/[0.01] border border-white/5 px-3 py-2 text-xs text-gray-400 flex items-center gap-2">
-            <Laptop className="h-4 w-4 text-brand-500" />
-            <span>{connectedTerminals} terminals online</span>
-          </div>
+          {/* Connected presence dots */}
+          {presenceList.length > 0 && (
+            <div className="flex items-center gap-1 bg-white/[0.01] border border-white/5 px-3 py-1.5 rounded-xl">
+              <span className="text-[10px] font-bold text-gray-500 mr-1">Active:</span>
+              <div className="flex -space-x-1">
+                {presenceList.slice(0, 3).map((p, idx) => (
+                  <div
+                    key={idx}
+                    className="h-5 w-5 rounded-full bg-brand-600 border border-[#070709] flex items-center justify-center text-[8px] font-bold text-white uppercase relative group cursor-help"
+                  >
+                    {p.email ? p.email.substring(0, 2) : "TM"}
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block z-10 bg-dark-card border border-white/10 px-2 py-0.5 rounded text-[8px] font-bold text-white whitespace-nowrap shadow-xl">
+                      {p.email} ({p.device || "CLI Client"})
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Real-time typing indicators */}
+          {typingStatus && (
+            <div className="text-[10px] text-brand-500 font-semibold animate-pulse tracking-wide font-sans">
+              {typingStatus}
+            </div>
+          )}
         </div>
 
         {/* Right side profile / Logout */}
@@ -1680,7 +1951,7 @@ export default function Dashboard() {
       )}
 
       {/* Main Workspace */}
-      <main className="flex-1 p-4 sm:p-6 xl:p-8 overflow-y-auto max-h-screen">
+      <main className="flex-1 p-4 sm:p-6 xl:p-8 overflow-y-auto max-h-screen z-10 relative">
         
         {/* Offline notice */}
         {!isOnline && (
@@ -1711,7 +1982,7 @@ export default function Dashboard() {
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
             {/* Horizontal Filter Navigation pills */}
             <div className="flex items-center gap-1 bg-white/[0.03] border border-white/5 p-1 rounded-xl">
-              {["all", "text", "code", "files"].map((tab) => (
+              {["all", "text", "code", "files", "trash"].map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -1834,7 +2105,10 @@ export default function Dashboard() {
                     </div>
                     <textarea
                       value={textContent}
-                      onChange={(e) => setTextContent(e.target.value)}
+                      onChange={(e) => {
+                        setTextContent(e.target.value);
+                        handleTypingBroadcast();
+                      }}
                       placeholder="Paste text here..."
                       rows="5"
                       className="w-full rounded-xl border border-white/10 bg-white/[0.02] py-3 px-4 text-sm text-white placeholder-gray-600 outline-none transition-all focus:border-brand-500/30 font-sans resize-y"
@@ -1880,7 +2154,10 @@ export default function Dashboard() {
                       </div>
                       <textarea
                         value={codeContent}
-                        onChange={(e) => setCodeContent(e.target.value)}
+                        onChange={(e) => {
+                          setCodeContent(e.target.value);
+                          handleTypingBroadcast();
+                        }}
                         placeholder="Paste code here..."
                         rows="6"
                         className="w-full rounded-xl border border-white/10 bg-white/[0.01] py-3 px-4 text-sm text-white placeholder-gray-600 outline-none transition-all focus:border-brand-500/30 font-mono resize-y"
@@ -1943,7 +2220,7 @@ export default function Dashboard() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="w-full rounded-xl bg-brand-600 py-3.5 text-sm font-semibold text-white transition-all hover:bg-brand-500 hover:shadow-[0_0_15px_rgba(0,120,212,0.3)] disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+                  className="w-full rounded-xl bg-brand-600 py-3.5 text-sm font-semibold text-white transition-all hover:bg-brand-500 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
                 >
                   {submitting ? (
                     <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
@@ -1963,7 +2240,7 @@ export default function Dashboard() {
             </div>
 
             {/* Storage Quota utilization tracker */}
-            <div className="rounded-2xl border border-white/5 bg-white/[0.01] p-5 sm:p-6 mt-6">
+            <div className="rounded-2xl border border-white/5 bg-white/[0.01] p-5 sm:p-6 mt-6 font-sans">
               <h4 className="text-xs font-extrabold text-white uppercase tracking-wider mb-3 flex items-center gap-1.5">
                 <HardDrive className="h-4 w-4 text-brand-500" /> Storage Utilization
               </h4>
@@ -2042,7 +2319,7 @@ export default function Dashboard() {
                 {filteredItems.map((item) => (
                   <div
                     key={item.id}
-                    className="group relative rounded-xl border border-white/5 bg-white/[0.01] hover:bg-white/[0.02] hover:border-brand-500/20 hover:shadow-[0_0_15px_rgba(0,120,212,0.03)] p-4 sm:p-5 transition-all duration-300"
+                    className="group relative rounded-xl border border-white/5 bg-[#0b0b0e] hover:bg-[#101014] hover:border-brand-500/25 hover:shadow-[0_4px_20px_rgba(0,120,212,0.04)] p-4 sm:p-5 transition-all duration-200 transform-gpu hover:-translate-y-0.5"
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex items-center gap-3 min-w-0">
@@ -2076,63 +2353,90 @@ export default function Dashboard() {
 
                       {/* Action Buttons */}
                       <div className="flex items-center gap-1.5 xl:opacity-0 xl:group-hover:opacity-100 transition-opacity">
-                        {!item.locked && !item.isOffline && (
-                          <button
-                            onClick={() => {
-                              setShareItem(item);
-                              setGeneratedLink("");
-                              setSharePassword("");
-                              setShowSharePasswordText(false);
-                              setShowShareModal(true);
-                            }}
-                            className="p-1.5 rounded-lg text-gray-400 hover:bg-white/5 hover:text-brand-500 transition-all cursor-pointer"
-                            title="Generate shareable link"
-                          >
-                            <Share2 className="h-4 w-4" />
-                          </button>
-                        )}
-                        {!item.locked && !item.isOffline && (
-                          <button
-                            onClick={() => {
-                              setAiItem(item);
-                              setAiResponse("");
-                              setAiCustomPrompt("");
-                              setShowAiModal(true);
-                            }}
-                            className="p-1.5 rounded-lg text-brand-500 hover:bg-white/5 hover:text-brand-400 transition-all cursor-pointer"
-                            title="AI Clipboard Assist"
-                          >
-                            <Sparkles className="h-4 w-4" />
-                          </button>
-                        )}
-                        {!item.locked && (item.type === "text" || item.type === "code") && (
-                          <button
-                            onClick={() => handleCopy(item)}
-                            className="p-1.5 rounded-lg text-gray-400 hover:bg-white/5 hover:text-brand-500 transition-all cursor-pointer"
-                            title="Copy to Clipboard"
-                          >
-                            <Copy className="h-4 w-4" />
-                          </button>
-                        )}
-                        {!item.locked && !item.isOffline && (item.type === "file" || item.type === "image") && (
-                          <a
-                            href={item.is_encrypted ? (decryptedFiles[item.id] || "#") : item.file_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="p-1.5 rounded-lg text-gray-400 hover:bg-white/5 hover:text-brand-500 transition-all flex items-center justify-center"
-                            title="Open Link"
-                          >
-                            <ExternalLink className="h-4 w-4" />
-                          </a>
-                        )}
-                        {!item.isOffline && (
-                          <button
-                            onClick={() => handleDelete(item.id)}
-                            className="p-1.5 rounded-lg text-gray-400 hover:bg-red-500/10 hover:text-red-400 transition-all cursor-pointer"
-                            title="Delete cloud record"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                        {activeTab === "trash" ? (
+                          <>
+                            {/* Restore Button */}
+                            <button
+                              onClick={() => handleRestore(item.id)}
+                              className="p-1.5 rounded-lg text-gray-400 hover:bg-white/5 hover:text-brand-500 transition-all cursor-pointer"
+                              title="Restore item"
+                            >
+                              <RotateCcw className="h-4 w-4" />
+                            </button>
+                            {/* Delete permanently */}
+                            <button
+                              onClick={() => handleDelete(item.id)}
+                              className="p-1.5 rounded-lg text-gray-400 hover:bg-red-500/10 hover:text-red-400 transition-all cursor-pointer"
+                              title="Delete permanently"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            {!item.locked && !item.isOffline && (
+                              <button
+                                onClick={() => {
+                                  setShareItem(item);
+                                  setGeneratedLink("");
+                                  setSharePassword("");
+                                  setShowSharePasswordText(false);
+                                  setShowShareModal(true);
+                                }}
+                                className="p-1.5 rounded-lg text-gray-400 hover:bg-white/5 hover:text-brand-500 transition-all cursor-pointer"
+                                title="Generate shareable link"
+                              >
+                                <Share2 className="h-4 w-4" />
+                              </button>
+                            )}
+                            {!item.locked && !item.isOffline && (
+                              <button
+                                onClick={() => {
+                                  setAiItem(item);
+                                  setAiResponse("");
+                                  setAiCustomPrompt("");
+                                  setShowAiModal(true);
+                                }}
+                                className="p-1.5 rounded-lg text-brand-500 hover:bg-white/5 hover:text-brand-400 transition-all cursor-pointer"
+                                title="AI Clipboard Assist"
+                              >
+                                <Sparkles className="h-4 w-4" />
+                              </button>
+                            )}
+                            {!item.locked && (item.type === "text" || item.type === "code") && (
+                              <button
+                                onClick={() => handleCopy(item)}
+                                className="p-1.5 rounded-lg text-gray-400 hover:bg-white/5 hover:text-brand-500 transition-all cursor-pointer flex items-center justify-center relative"
+                                title="Copy to Clipboard"
+                              >
+                                {copiedId === item.id ? (
+                                  <UserCheck className="h-4 w-4 text-emerald-400 animate-in zoom-in duration-200" />
+                                ) : (
+                                  <Copy className="h-4 w-4" />
+                                )}
+                              </button>
+                            )}
+                            {!item.locked && !item.isOffline && (item.type === "file" || item.type === "image") && (
+                              <a
+                                href={item.is_encrypted ? (decryptedFiles[item.id] || "#") : item.file_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-1.5 rounded-lg text-gray-400 hover:bg-white/5 hover:text-brand-500 transition-all flex items-center justify-center"
+                                title="Open Link"
+                              >
+                                <ExternalLink className="h-4 w-4" />
+                              </a>
+                            )}
+                            {!item.isOffline && (
+                              <button
+                                onClick={() => handleDelete(item.id)}
+                                className="p-1.5 rounded-lg text-gray-400 hover:bg-red-500/10 hover:text-red-400 transition-all cursor-pointer"
+                                title="Delete cloud record"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
@@ -2255,7 +2559,7 @@ export default function Dashboard() {
               <X className="h-5 w-5" />
             </button>
 
-            <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
+            <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2 font-sans">
               <Share2 className="h-5 w-5 text-brand-500" /> Share Clipboard Item
             </h3>
             <p className="text-xs text-gray-400 mb-6 font-sans">Create a secure link for "{shareItem.title}"</p>
@@ -2281,7 +2585,7 @@ export default function Dashboard() {
                   <label className="block text-xs font-medium text-gray-400 mb-1.5 flex items-center gap-1">
                     <Lock className="h-3.5 w-3.5 text-gray-500" /> Password Protection (Optional)
                   </label>
-                  <div className="relative">
+                  <div className="relative font-sans">
                     <input
                       type={showSharePasswordText ? "text" : "password"}
                       value={sharePassword}
@@ -2345,7 +2649,7 @@ export default function Dashboard() {
       {/* Set Passphrase Modal */}
       {showPassphraseModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-white/5 bg-dark-card p-6 shadow-2xl relative">
+          <div className="w-full max-w-md rounded-2xl border border-white/5 bg-dark-card p-6 shadow-2xl relative font-sans">
             <button
               onClick={() => setShowPassphraseModal(false)}
               className="absolute top-4 right-4 text-gray-400 hover:text-white transition-all cursor-pointer"
@@ -2360,7 +2664,7 @@ export default function Dashboard() {
               Enter your secret decryption password. This is stored only in your browser memory and used to encrypt/decrypt synced cloud items.
             </p>
 
-            <form onSubmit={handleSetPassphrase} className="space-y-4 font-sans">
+            <form onSubmit={handleSetPassphrase} className="space-y-4">
               <div>
                 <label className="block text-xs font-medium text-gray-400 mb-1.5">Encryption Passphrase</label>
                 <div className="relative">
@@ -2384,7 +2688,7 @@ export default function Dashboard() {
               </div>
               <button
                 type="submit"
-                className="w-full rounded-xl bg-brand-600 py-3 text-sm font-semibold text-white transition-all hover:bg-brand-500 flex items-center justify-center gap-2 cursor-pointer font-sans"
+                className="w-full rounded-xl bg-brand-600 py-3 text-sm font-semibold text-white transition-all hover:bg-brand-500 flex items-center justify-center gap-2 cursor-pointer"
               >
                 Activate E2EE Keys
               </button>
@@ -2396,7 +2700,7 @@ export default function Dashboard() {
       {/* CLI Tokens Management Modal */}
       {showCliTokenModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl border border-white/5 bg-dark-card p-6 shadow-2xl relative">
+          <div className="w-full max-w-lg rounded-2xl border border-white/5 bg-dark-card p-6 shadow-2xl relative font-sans">
             <button
               onClick={() => setShowCliTokenModal(false)}
               className="absolute top-4 right-4 text-gray-400 hover:text-white transition-all cursor-pointer"
@@ -2407,7 +2711,7 @@ export default function Dashboard() {
             <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
               <Key className="h-5 w-5 text-brand-500" /> CLI Access Tokens
             </h3>
-            <p className="text-xs text-gray-400 mb-6 font-sans">
+            <p className="text-xs text-gray-400 mb-6">
               Generate Personal Access Tokens (PAT) to log in to the Desktop CLI Companion securely without typing your account password.
             </p>
 
@@ -2483,7 +2787,7 @@ export default function Dashboard() {
       {/* Create Workspace Modal */}
       {showWorkspaceModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-white/5 bg-dark-card p-6 shadow-2xl relative">
+          <div className="w-full max-w-md rounded-2xl border border-white/5 bg-dark-card p-6 shadow-2xl relative font-sans">
             <button
               onClick={() => setShowWorkspaceModal(false)}
               className="absolute top-4 right-4 text-gray-400 hover:text-white transition-all cursor-pointer"
@@ -2494,7 +2798,7 @@ export default function Dashboard() {
             <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
               <Briefcase className="h-5 w-5 text-brand-500" /> Create Workspace
             </h3>
-            <p className="text-xs text-gray-400 mb-6 font-sans">
+            <p className="text-xs text-gray-400 mb-6">
               Create a shared environment to collaborate on files, links, and code snippets with your team.
             </p>
 
@@ -2526,7 +2830,7 @@ export default function Dashboard() {
       {/* Invite Member Modal */}
       {showInviteModal && activeWorkspace && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-white/5 bg-dark-card p-6 shadow-2xl relative">
+          <div className="w-full max-w-md rounded-2xl border border-white/5 bg-dark-card p-6 shadow-2xl relative font-sans">
             <button
               onClick={() => setShowInviteModal(false)}
               className="absolute top-4 right-4 text-gray-400 hover:text-white transition-all cursor-pointer"
@@ -2537,7 +2841,7 @@ export default function Dashboard() {
             <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
               <Users className="h-5 w-5 text-brand-500" /> Invite to "{activeWorkspace.name}"
             </h3>
-            <p className="text-xs text-gray-400 mb-6 font-sans">
+            <p className="text-xs text-gray-400 mb-6">
               Add a teammate by entering their email address. They will be able to view and publish items to this workspace.
             </p>
 
@@ -2568,7 +2872,7 @@ export default function Dashboard() {
 
       {/* AI Assistant Modal */}
       {showAiModal && aiItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm font-sans">
           <div className="w-full max-w-lg rounded-2xl border border-white/5 bg-dark-card p-6 shadow-2xl relative">
             <button
               onClick={() => setShowAiModal(false)}
@@ -2580,18 +2884,16 @@ export default function Dashboard() {
             <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
               <Sparkles className="h-5 w-5 text-brand-500 animate-pulse" /> AI Clipboard Copilot
             </h3>
-            <p className="text-xs text-gray-400 mb-6 font-sans">
+            <p className="text-xs text-gray-400 mb-6">
               Transform, analyze, and sync your clipboard content using Gemini.
             </p>
 
             <div className="space-y-4">
-              {/* Selected Clip Preview */}
               <div className="bg-black/25 p-3.5 rounded-xl border border-white/5 space-y-1">
-                <span className="text-[9px] font-bold text-gray-500 uppercase tracking-widest block">Original Content Preview:</span>
+                <span className="text-[9px] font-bold text-gray-500 uppercase tracking-widest block font-mono">Original Content Preview:</span>
                 <p className="text-xs text-gray-300 m-0 truncate max-w-md font-mono">{aiItem.content}</p>
               </div>
 
-              {/* Action Buttons */}
               <div className="space-y-2">
                 <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block">Quick AI Presets:</span>
                 <div className="flex flex-wrap gap-2">
@@ -2634,9 +2936,8 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Custom Prompt Box */}
               <div className="space-y-2 pt-2 border-t border-white/5">
-                <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest font-sans">Custom AI Instructions:</label>
+                <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest">Custom AI Instructions:</label>
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -2649,17 +2950,16 @@ export default function Dashboard() {
                   <button
                     onClick={() => handleAiAction("custom")}
                     disabled={aiLoading}
-                    className="rounded-xl bg-brand-600 hover:bg-brand-500 px-4 text-xs font-semibold text-white cursor-pointer disabled:opacity-50 font-sans"
+                    className="rounded-xl bg-brand-600 hover:bg-brand-500 px-4 text-xs font-semibold text-white cursor-pointer disabled:opacity-50"
                   >
                     Run
                   </button>
                 </div>
               </div>
 
-              {/* AI Response Output */}
               {(aiLoading || aiResponse) && (
                 <div className="space-y-2 pt-4 border-t border-white/5">
-                  <span className="text-[10px] font-bold text-brand-500 uppercase tracking-widest flex items-center gap-1 font-sans">
+                  <span className="text-[10px] font-bold text-brand-500 uppercase tracking-widest flex items-center gap-1">
                     <Sparkles className="h-3.5 w-3.5 animate-spin" /> AI Copilot Result:
                   </span>
                   
@@ -2673,7 +2973,7 @@ export default function Dashboard() {
                         {aiResponse}
                       </div>
 
-                      <div className="flex gap-2 justify-end pt-2 border-t border-white/5 font-sans">
+                      <div className="flex gap-2 justify-end pt-2 border-t border-white/5">
                         <button
                           onClick={() => {
                             navigator.clipboard.writeText(aiResponse);
