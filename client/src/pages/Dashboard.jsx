@@ -38,11 +38,8 @@ import {
   Flame,
   Clock,
   Laptop,
-  CheckCircle,
-  HelpCircle,
-  Hash,
   Key,
-  Calendar,
+  Hash,
   CheckSquare,
   Square
 } from "lucide-react";
@@ -165,7 +162,6 @@ const compressImage = (file) => {
   });
 };
 
-// --- Helper to Compute SHA-256 Hash of Token ---
 const sha256 = async (ascii) => {
   const msgBuffer = new TextEncoder().encode(ascii);
   const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
@@ -180,7 +176,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("all");
-  const [selectedTag, setSelectedTag] = useState(null); // Hashtag filter
+  const [selectedTag, setSelectedTag] = useState(null); 
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   
   // Socket State
@@ -203,7 +199,7 @@ export default function Dashboard() {
   const [generatedTokenVal, setGeneratedTokenVal] = useState("");
   const [tokenSubmitting, setTokenSubmitting] = useState(false);
 
-  // Mobile navigation state
+  // Mobile navigation drawer state
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Workspaces State
@@ -290,7 +286,6 @@ export default function Dashboard() {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     
-    // Scale for high DPI devices
     const dpr = window.devicePixelRatio || 1;
     const width = 300;
     const height = 180;
@@ -312,14 +307,12 @@ export default function Dashboard() {
       const centerX = width / 2;
       const centerY = height / 2;
 
-      // Draw orbital ring
       ctx.beginPath();
       ctx.arc(centerX, centerY, 60, 0, 2 * Math.PI);
       ctx.strokeStyle = "rgba(255,255,255,0.05)";
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      // Draw Central Cloud
       ctx.beginPath();
       ctx.arc(centerX, centerY, 15, 0, 2 * Math.PI);
       ctx.fillStyle = "rgba(0,120,212,0.15)";
@@ -328,38 +321,32 @@ export default function Dashboard() {
       ctx.fill();
       ctx.stroke();
       
-      // Cloud label
       ctx.fillStyle = "#fff";
       ctx.font = "bold 9px sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText("Cloud", centerX, centerY);
 
-      // Draw device nodes
       devices.forEach((dev) => {
         dev.angle += dev.speed;
         const devX = centerX + Math.cos(dev.angle) * dev.radius;
         const devY = centerY + Math.sin(dev.angle) * dev.radius;
 
-        // Draw node
         ctx.beginPath();
         ctx.arc(devX, devY, 8, 0, 2 * Math.PI);
         ctx.fillStyle = dev.color;
         ctx.fill();
 
-        // Label
         ctx.fillStyle = "rgba(255,255,255,0.6)";
         ctx.font = "8px monospace";
         ctx.fillText(dev.name, devX, devY - 14);
       });
 
-      // Draw active particles
       particlesRef.current = particlesRef.current.filter((particle) => {
         particle.t += particle.speed;
         if (particle.t >= 1) {
           if (particle.direction === "in") {
-            // Trigger outbound split particles when hit cloud
-            devices.forEach((dev, idx) => {
+            devices.forEach((dev) => {
               const devX = centerX + Math.cos(dev.angle) * dev.radius;
               const devY = centerY + Math.sin(dev.angle) * dev.radius;
               particlesRef.current.push({
@@ -374,10 +361,9 @@ export default function Dashboard() {
               });
             });
           }
-          return false; // delete active particle
+          return false;
         }
 
-        // Linear interpolation
         const currentX = particle.x + (particle.targetX - particle.x) * particle.t;
         const currentY = particle.y + (particle.targetY - particle.y) * particle.t;
 
@@ -387,7 +373,7 @@ export default function Dashboard() {
         ctx.shadowColor = particle.color;
         ctx.shadowBlur = 10;
         ctx.fill();
-        ctx.shadowBlur = 0; // reset shadow
+        ctx.shadowBlur = 0;
 
         return true;
       });
@@ -402,7 +388,6 @@ export default function Dashboard() {
     };
   }, []);
 
-  // Trigger orbital canvas sync beams
   const triggerSyncAnimation = (fromDeviceName) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -411,13 +396,11 @@ export default function Dashboard() {
     const centerX = width / 2;
     const centerY = height / 2;
 
-    // Simulate sending node position
     const angles = { Browser: 0, Terminal: (2 * Math.PI) / 3, Mobile: (4 * Math.PI) / 3 };
     const angle = angles[fromDeviceName] || 0;
     const startX = centerX + Math.cos(angle) * 60;
     const startY = centerY + Math.sin(angle) * 60;
 
-    // Add incoming particle
     particlesRef.current.push({
       x: startX,
       y: startY,
@@ -430,7 +413,6 @@ export default function Dashboard() {
     });
   };
 
-  // Drag and Drop File Handlers
   const handleDragEnter = (e) => {
     e.preventDefault();
     dragCounter.current += 1;
@@ -463,7 +445,6 @@ export default function Dashboard() {
     }
   };
 
-  // Dictation transcribing
   const toggleSpeechDictation = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -511,7 +492,6 @@ export default function Dashboard() {
     }
   };
 
-  // Scrape OG previews
   const fetchLinkPreview = async (itemId, url) => {
     if (previews[itemId]) return;
     try {
@@ -529,29 +509,6 @@ export default function Dashboard() {
     }
   };
 
-  // Monitor online status
-  useEffect(() => {
-    const handleOnline = () => {
-      setIsOnline(true);
-      toast.success("Connection restored! Syncing database...");
-      syncOfflineClips();
-    };
-    
-    const handleOffline = () => {
-      setIsOnline(false);
-      toast.error("You are offline. Clips will be saved locally.");
-    };
-
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
-  }, [user, activeWorkspace, socket]);
-
-  // Sync Offline Queue
   const syncOfflineClips = async () => {
     if (!navigator.onLine || !user) return;
 
@@ -652,7 +609,6 @@ export default function Dashboard() {
     };
   }, [navigate, backendUrl]);
 
-  // Decrypt items when rawItems or encryptionKey changes
   useEffect(() => {
     const processItems = async () => {
       const dbClips = await Promise.all(
@@ -699,7 +655,6 @@ export default function Dashboard() {
         })
       );
 
-      // Fetch locally queued offline items
       const offlineClips = await getOfflineClips();
       const filteredOffline = offlineClips
         .filter(clip => activeWorkspace ? clip.workspace_id === activeWorkspace.id : !clip.workspace_id)
@@ -715,13 +670,41 @@ export default function Dashboard() {
     processItems();
   }, [rawItems, encryptionKey, activeWorkspace]);
 
-  // Handle Interactive Task Checklist Updates
+  const triggerBrowserNotification = (title, body) => {
+    if ("Notification" in window && Notification.permission === "granted") {
+      new Notification(title, {
+        body,
+        icon: "/logo.svg"
+      });
+    }
+  };
+
+  const triggerFileDecryption = async (item) => {
+    if (decryptedFiles[item.id]) return;
+
+    try {
+      const response = await fetch(item.file_url);
+      const encryptedBuffer = await response.arrayBuffer();
+      const decryptedBuffer = await decryptFile(encryptedBuffer, encryptionKey);
+      
+      const blobType = item.type === "image" ? "image/*" : "application/octet-stream";
+      const blob = new Blob([decryptedBuffer], { type: blobType });
+      const localUrl = URL.createObjectURL(blob);
+      
+      setDecryptedFiles(prev => ({
+        ...prev,
+        [item.id]: localUrl
+      }));
+    } catch (err) {
+      console.error(`Failed to decrypt file for item ${item.id}:`, err);
+    }
+  };
+
   const handleChecklistToggle = async (item, index, currentState) => {
     let content = item.content;
     const checkboxRegex = /-\s*\[([ xX])\]/g;
     let occurrences = 0;
     
-    // Replace the checkbox at the target index
     const newContent = content.replace(checkboxRegex, (match, char) => {
       if (occurrences === index) {
         occurrences++;
@@ -731,12 +714,10 @@ export default function Dashboard() {
       return match;
     });
 
-    // Update locally to prevent input stuttering
     setItems((prev) =>
       prev.map((i) => (i.id === item.id ? { ...i, content: newContent } : i))
     );
 
-    // Call Supabase update
     try {
       let finalContent = newContent;
       if (item.is_encrypted) {
@@ -762,12 +743,10 @@ export default function Dashboard() {
     }
   };
 
-  // Lightweight Markdown & Interactive Task list parser
   const renderMarkdownContent = (item) => {
     const text = item.content;
     if (!text) return "";
 
-    // Regex checklist items: `- [ ] task` or `- [x] task`
     const lines = text.split("\n");
     let checkboxIndex = 0;
 
@@ -794,7 +773,6 @@ export default function Dashboard() {
         );
       }
 
-      // Headers `# Header`
       if (line.startsWith("# ")) {
         return <h4 key={lineIdx} className="text-sm font-bold text-white mt-2 mb-1">{line.slice(2)}</h4>;
       }
@@ -802,12 +780,10 @@ export default function Dashboard() {
         return <h5 key={lineIdx} className="text-xs font-bold text-white mt-2 mb-1">{line.slice(3)}</h5>;
       }
       
-      // Standard lines
       return <p key={lineIdx} className="m-0 py-0.5 leading-relaxed font-sans text-xs">{line}</p>;
     });
   };
 
-  // Compile smart Category Hashtags from all clips in history
   const getAllHashtags = () => {
     const tags = new Set();
     items.forEach((item) => {
@@ -872,7 +848,6 @@ export default function Dashboard() {
     if (!newTokenName.trim() || !user) return;
 
     setTokenSubmitting(true);
-    // Generate clean hex token: clipsync_pat_xxxx
     const randArr = new Uint8Array(16);
     crypto.getRandomValues(randArr);
     const rawToken = "clipsync_pat_" + Array.from(randArr).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -969,12 +944,19 @@ export default function Dashboard() {
     }
   };
 
-  const handleLogout = async () => {
-    if (socket) socket.disconnect();
-    sessionStorage.removeItem("clipsync_passphrase");
-    await supabase.auth.signOut();
-    toast.success("Logged out successfully");
-    navigate("/");
+  const handleCopy = async (item) => {
+    navigator.clipboard.writeText(item.content);
+    toast.success("Copied to clipboard!", { icon: "📋" });
+
+    if (item.self_destruct && !item.isOffline) {
+      toast.loading("Self-destructing clipboard record...", { id: "selfdestruct" });
+      const { error } = await supabase.from("clipboard_items").delete().eq("id", item.id);
+      toast.dismiss("selfdestruct");
+      if (!error) {
+        toast.error("Clip self-destructed permanently!", { icon: "🔥" });
+        setRawItems((prev) => prev.filter((i) => i.id !== item.id));
+      }
+    }
   };
 
   const handleSetPassphrase = async (e) => {
@@ -1203,7 +1185,6 @@ export default function Dashboard() {
       return true;
     })
     .filter((item) => {
-      // Smart tag filtration
       if (!selectedTag) return true;
       return item.content && !item.locked && item.content.toLowerCase().includes(selectedTag.toLowerCase());
     })
@@ -1215,8 +1196,24 @@ export default function Dashboard() {
       );
     });
 
-  // Sidebar mapping elements
-  const SidebarContent = () => (
+  const getIcon = (type, locked) => {
+    if (locked) {
+      return <Lock className="h-5 w-5 text-red-400" />;
+    }
+    switch (type) {
+      case "text":
+        return <FileText className="h-5 w-5 text-blue-400" />;
+      case "code":
+        return <Code className="h-5 w-5 text-emerald-400" />;
+      case "image":
+        return <ImageIcon className="h-5 w-5 text-cyan-400" />;
+      default:
+        return <FileIcon className="h-5 w-5 text-orange-400" />;
+    }
+  };
+
+  // Shared Sidebar controls drawer content on Mobile, horizontal top row on Desktop
+  const MobileDrawerContent = () => (
     <div className="flex flex-col justify-between h-full space-y-6">
       <div className="space-y-5">
         <div className="flex items-center gap-3">
@@ -1224,32 +1221,14 @@ export default function Dashboard() {
             <Clipboard className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-xl font-bold tracking-tight text-white m-0">ClipSync</h2>
-            <span className="text-xs text-brand-500 font-semibold tracking-wider uppercase">Cloud Sync</span>
+            <h2 className="text-xl font-bold tracking-tight text-white m-0 font-sans">ClipSync</h2>
+            <span className="text-xs text-brand-500 font-semibold tracking-wider uppercase">Cloud Settings</span>
           </div>
         </div>
 
-        {/* Sync Nodes Canvas Map */}
-        <div className="rounded-xl border border-white/5 bg-black/10 overflow-hidden flex flex-col items-center p-3 relative group">
-          <canvas ref={canvasRef} className="rounded" />
-          <span className="absolute top-2 left-2 text-[8px] font-bold text-gray-500 tracking-widest uppercase">Nodes Topology</span>
-        </div>
-
-        {/* CLI Tokens Button */}
-        <button
-          onClick={() => {
-            setGeneratedTokenVal("");
-            setShowCliTokenModal(true);
-            setMobileMenuOpen(false);
-          }}
-          className="flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-gray-300 hover:text-white transition-all cursor-pointer border border-white/10 bg-white/[0.02]"
-        >
-          <Key className="h-3.5 w-3.5" /> Manage CLI Tokens
-        </button>
-
-        {/* Workspace Manager */}
+        {/* Workspaces list */}
         <div className="space-y-2">
-          <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest">Workspaces</label>
+          <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest">Active Workspace</label>
           <div className="space-y-1">
             <button
               onClick={() => handleWorkspaceChange(null)}
@@ -1259,7 +1238,6 @@ export default function Dashboard() {
             >
               <User className="h-3.5 w-3.5" /> Personal Workspace
             </button>
-
             {workspaces.map((ws) => (
               <button
                 key={ws.id}
@@ -1271,7 +1249,6 @@ export default function Dashboard() {
                 <Briefcase className="h-3.5 w-3.5" /> {ws.name}
               </button>
             ))}
-
             <button
               onClick={() => {
                 setShowWorkspaceModal(true);
@@ -1284,114 +1261,56 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Hashtags Filter Categories */}
-        {getAllHashtags().length > 0 && (
-          <div className="space-y-2">
-            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-1">
-              <Hash className="h-3.5 w-3.5 text-brand-500" /> Filter by Hashtags
-            </label>
-            <div className="flex flex-wrap gap-1">
-              {getAllHashtags().map((tag) => (
-                <button
-                  key={tag}
-                  onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}
-                  className={`text-[9px] font-semibold px-2 py-1 rounded transition-all cursor-pointer ${
-                    selectedTag === tag 
-                      ? "bg-brand-600 text-white border border-brand-500" 
-                      : "bg-white/5 border border-white/5 text-gray-400 hover:text-white"
-                  }`}
-                >
-                  {tag}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        {/* CLI Tokens */}
+        <button
+          onClick={() => {
+            setGeneratedTokenVal("");
+            setShowCliTokenModal(true);
+            setMobileMenuOpen(false);
+          }}
+          className="flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-gray-300 hover:text-white transition-all cursor-pointer border border-white/10 bg-white/[0.02]"
+        >
+          <Key className="h-3.5 w-3.5" /> Manage CLI Tokens
+        </button>
 
-        {/* E2EE Passphrase Manager */}
+        {/* E2EE */}
         <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 text-center">
           <div className="flex items-center justify-center gap-2 mb-2">
             <Shield className={`h-5 w-5 ${encryptionKey ? "text-emerald-400" : "text-gray-500"}`} />
-            <span className="text-xs font-bold text-white uppercase tracking-wider">End-to-End Encryption</span>
+            <span className="text-xs font-bold text-white uppercase tracking-wider">Encryption status</span>
           </div>
-
           {encryptionKey ? (
-            <div className="space-y-2">
-              <span className="text-[10px] text-emerald-400/90 font-medium flex items-center justify-center gap-1">
-                <ShieldCheck className="h-3.5 w-3.5" /> E2EE Enabled
-              </span>
-              <button
-                onClick={handleClearPassphrase}
-                className="w-full rounded-lg bg-white/5 border border-white/10 py-1.5 text-[10px] font-semibold text-gray-400 hover:text-white transition-all cursor-pointer"
-              >
-                Lock E2EE Keys
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <span className="text-[10px] text-gray-500 font-medium flex items-center justify-center gap-1">
-                <ShieldAlert className="h-3.5 w-3.5" /> E2EE Inactive
-              </span>
-              <button
-                onClick={() => {
-                  setPassphraseInput("");
-                  setShowPassphraseText(false);
-                  setShowPassphraseModal(true);
-                  setMobileMenuOpen(false);
-                }}
-                className="w-full rounded-lg bg-brand-600/10 border border-brand-500/30 py-1.5 text-[10px] font-semibold text-brand-500 hover:bg-brand-600/20 transition-all cursor-pointer"
-              >
-                Set Passphrase
-              </button>
-            </div>
-          )}
-        </div>
-
-        <nav className="space-y-1">
-          {["all", "text", "code", "files"].map((tab) => (
             <button
-              key={tab}
+              onClick={handleClearPassphrase}
+              className="w-full rounded-lg bg-white/5 border border-white/10 py-1.5 text-[10px] font-semibold text-gray-400 hover:text-white transition-all cursor-pointer"
+            >
+              Lock E2EE keys
+            </button>
+          ) : (
+            <button
               onClick={() => {
-                setActiveTab(tab);
+                setPassphraseInput("");
+                setShowPassphraseText(false);
+                setShowPassphraseModal(true);
                 setMobileMenuOpen(false);
               }}
-              className={`flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium transition-all cursor-pointer ${
-                activeTab === tab 
-                  ? "bg-brand-500/15 text-brand-500 border-l-2 border-brand-500 pl-3.5" 
-                  : "text-gray-400 hover:bg-white/[0.02] hover:text-white"
-              }`}
+              className="w-full rounded-lg bg-brand-600/10 border border-brand-500/30 py-1.5 text-[10px] font-semibold text-brand-500 hover:bg-brand-600/20 transition-all cursor-pointer"
             >
-              {tab === "all" && "All Items"}
-              {tab === "text" && "Texts"}
-              {tab === "code" && "Code Snippets"}
-              {tab === "files" && "Files & Images"}
+              Set Passphrase
             </button>
-          ))}
-        </nav>
+          )}
+        </div>
       </div>
 
       <div className="border-t border-white/5 pt-6 space-y-4">
-        <div className="flex items-center justify-between rounded-lg bg-white/[0.02] border border-white/5 px-3 py-2">
-          <span className="text-xs text-gray-400 font-medium">Real-time status</span>
-          {connected ? (
-            <span className="flex items-center gap-1.5 text-xs text-emerald-400 font-semibold">
-              <Wifi className="h-3.5 w-3.5 animate-pulse" /> Online
-            </span>
-          ) : (
-            <span className="flex items-center gap-1.5 text-xs text-red-400 font-semibold">
-              <WifiOff className="h-3.5 w-3.5" /> Offline
-            </span>
-          )}
-        </div>
-
         {user && (
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/5 border border-white/10 text-gray-400">
               <User className="h-5 w-5" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-white truncate m-0">{user.user_metadata?.full_name || "User"}</p>
-              <p className="text-xs text-gray-500 truncate m-0">{user.email}</p>
+              <p className="text-sm font-medium text-white truncate m-0 font-sans">{user.user_metadata?.full_name || "User"}</p>
+              <p className="text-xs text-gray-500 truncate m-0 font-mono">{user.email}</p>
             </div>
           </div>
         )}
@@ -1408,11 +1327,11 @@ export default function Dashboard() {
 
   return (
     <div 
-      className="flex flex-col xl:flex-row min-h-screen w-full max-w-full bg-dark-bg text-gray-200 overflow-x-hidden relative"
+      className="flex flex-col min-h-screen w-full max-w-full bg-dark-bg text-gray-200 overflow-x-hidden relative font-sans"
       onDragEnter={handleDragEnter}
       onDragOver={(e) => e.preventDefault()}
     >
-      {/* Full screen Drag & Drop File Upload Overlay */}
+      {/* Drag & Drop Full-screen Overlay */}
       {isDragging && (
         <div 
           className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center border-4 border-dashed border-brand-500 p-8 transition-all"
@@ -1427,9 +1346,106 @@ export default function Dashboard() {
           <p className="text-sm text-gray-400 mt-2">Release the file to load it directly into your ClipSync upload portal.</p>
         </div>
       )}
-      
+
+      {/* Premium Horizontal Navigation Header (Desktop viewports >= 1280px) */}
+      <header className="hidden xl:flex items-center justify-between px-8 py-4 bg-white/[0.01] border-b border-white/5 backdrop-blur-md sticky top-0 z-40">
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-500">
+              <Clipboard className="h-4.5 w-4.5" />
+            </div>
+            <span className="text-lg font-bold text-white tracking-tight">ClipSync</span>
+          </div>
+
+          {/* Active Workspace select dropdown */}
+          <div className="relative">
+            <select
+              value={activeWorkspace ? activeWorkspace.id : ""}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val === "") {
+                  handleWorkspaceChange(null);
+                } else if (val === "__create") {
+                  setShowWorkspaceModal(true);
+                } else {
+                  const wsObj = workspaces.find((w) => w.id === val);
+                  if (wsObj) handleWorkspaceChange(wsObj);
+                }
+              }}
+              className="rounded-lg border border-white/10 bg-dark-card py-1.5 pl-3 pr-8 text-xs font-semibold text-white outline-none cursor-pointer focus:border-brand-500/30"
+            >
+              <option value="">👤 Personal Workspace</option>
+              {workspaces.map((w) => (
+                <option key={w.id} value={w.id}>🏢 {w.name}</option>
+              ))}
+              <option value="__create" className="text-brand-500 font-bold">+ Create Workspace</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Center widgets */}
+        <div className="flex items-center gap-4">
+          {/* E2EE Lock Button */}
+          <button
+            onClick={() => {
+              if (encryptionKey) {
+                handleClearPassphrase();
+              } else {
+                setPassphraseInput("");
+                setShowPassphraseText(false);
+                setShowPassphraseModal(true);
+              }
+            }}
+            className={`rounded-xl border px-4 py-2 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+              encryptionKey 
+                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20" 
+                : "bg-white/5 border-white/10 text-gray-400 hover:text-white"
+            }`}
+          >
+            <Shield className="h-4 w-4" />
+            {encryptionKey ? "E2EE Active" : "E2EE Inactive"}
+          </button>
+
+          {/* CLI key manager */}
+          <button
+            onClick={() => {
+              setGeneratedTokenVal("");
+              setShowCliTokenModal(true);
+            }}
+            className="rounded-xl bg-white/5 border border-white/10 px-4 py-2 text-xs font-semibold text-gray-300 hover:text-white transition-all cursor-pointer flex items-center gap-1.5"
+          >
+            <Key className="h-4 w-4" />
+            CLI Keys
+          </button>
+
+          {/* Connected Terminals stats */}
+          <div className="rounded-xl bg-white/[0.01] border border-white/5 px-3 py-2 text-xs text-gray-400 flex items-center gap-2">
+            <Laptop className="h-4 w-4 text-brand-500" />
+            <span>{connectedTerminals} terminals online</span>
+          </div>
+        </div>
+
+        {/* Right side profile / Logout */}
+        <div className="flex items-center gap-4">
+          {user && (
+            <div className="flex items-center gap-2 max-w-[150px]">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 border border-white/10 text-gray-400 shrink-0">
+                <User className="h-4 w-4" />
+              </div>
+              <span className="text-xs font-medium text-white truncate">{user.user_metadata?.full_name || "User"}</span>
+            </div>
+          )}
+          <button
+            onClick={handleLogout}
+            className="p-2 rounded-lg text-red-400 hover:bg-red-500/10 transition-all cursor-pointer flex items-center gap-1.5 text-xs font-semibold"
+          >
+            <LogOut className="h-4 w-4" /> Logout
+          </button>
+        </div>
+      </header>
+
       {/* Mobile Top Navigation Header */}
-      <header className="xl:hidden flex items-center justify-between p-4 bg-white/[0.01] border-b border-white/5 z-40">
+      <header className="xl:hidden flex items-center justify-between p-4 bg-white/[0.01] border-b border-white/5 z-40 sticky top-0 backdrop-blur-md">
         <div className="flex items-center gap-2.5">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-500">
             <Clipboard className="h-4 w-4" />
@@ -1444,11 +1460,6 @@ export default function Dashboard() {
         </button>
       </header>
 
-      {/* Desktop Sidebar */}
-      <aside className="hidden xl:flex w-64 border-r border-white/5 bg-white/[0.01] p-6 flex-col justify-between shrink-0">
-        <SidebarContent />
-      </aside>
-
       {/* Mobile Drawer Overlay */}
       {mobileMenuOpen && (
         <div className="fixed inset-0 z-50 xl:hidden flex">
@@ -1456,14 +1467,14 @@ export default function Dashboard() {
             onClick={() => setMobileMenuOpen(false)}
             className="fixed inset-0 bg-black/60 backdrop-blur-sm"
           ></div>
-          <div className="relative w-64 bg-dark-card border-r border-white/5 p-6 flex flex-col justify-between h-full shadow-2xl animate-in slide-in-from-left duration-200">
+          <div className="relative w-64 bg-dark-card border-r border-white/5 p-6 flex flex-col justify-between h-full shadow-2xl animate-in slide-in-from-left duration-200 ml-auto">
             <button
               onClick={() => setMobileMenuOpen(false)}
               className="absolute top-4 right-4 text-gray-400 hover:text-white"
             >
               <X className="h-5 w-5" />
             </button>
-            <SidebarContent />
+            <MobileDrawerContent />
           </div>
         </div>
       )}
@@ -1471,13 +1482,14 @@ export default function Dashboard() {
       {/* Main Workspace */}
       <main className="flex-1 p-4 sm:p-6 xl:p-8 overflow-y-auto max-h-screen">
         
+        {/* Offline notice */}
         {!isOnline && (
           <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 mb-6 flex items-center justify-center gap-2 text-xs font-semibold text-amber-500">
             <AlertTriangle className="h-4 w-4 shrink-0 animate-bounce" /> Currently Offline. Text/Code clips will be queued locally and auto-synced when online.
           </div>
         )}
 
-        {/* Workspace Title & Search */}
+        {/* Workspace Title & Search / Tag filter sub-bar */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white m-0 flex items-center gap-3">
@@ -1485,7 +1497,7 @@ export default function Dashboard() {
               {activeWorkspace && (
                 <button
                   onClick={() => setShowInviteModal(true)}
-                  className="rounded-lg bg-brand-600/10 border border-brand-500/30 px-3 py-1.5 text-xs font-semibold text-brand-500 hover:bg-brand-600/20 flex items-center gap-1 cursor-pointer"
+                  className="rounded-lg bg-brand-600/10 border border-brand-500/30 px-3 py-1.5 text-xs font-semibold text-brand-500 hover:bg-brand-600/20 flex items-center gap-1 cursor-pointer animate-in fade-in"
                 >
                   <Users className="h-3.5 w-3.5" /> Invite Member
                 </button>
@@ -1496,30 +1508,69 @@ export default function Dashboard() {
             </p>
           </div>
 
-          <div className="relative w-full md:w-80">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
-            <input
-              type="text"
-              placeholder="Search history..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-white/[0.02] py-2.5 pl-10 pr-4 text-sm text-white placeholder-gray-500 outline-none transition-all focus:border-brand-500/40 focus:bg-white/[0.04]"
-            />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-gray-500 border border-white/10 rounded px-1.5 py-0.5 pointer-events-none hidden sm:inline">
-              Ctrl+K
-            </span>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            {/* Horizontal Filter Navigation pills */}
+            <div className="flex items-center gap-1 bg-white/[0.03] border border-white/5 p-1 rounded-xl">
+              {["all", "text", "code", "files"].map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`rounded-lg px-3 py-1.5 text-[10px] sm:text-xs font-semibold uppercase tracking-wider transition-all cursor-pointer ${
+                    activeTab === tab 
+                      ? "bg-brand-600 text-white shadow-md" 
+                      : "text-gray-400 hover:text-white"
+                  }`}
+                >
+                  {tab === "all" ? "All" : tab === "files" ? "Files" : tab}
+                </button>
+              ))}
+            </div>
+
+            <div className="relative w-full md:w-64">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
+              <input
+                type="text"
+                placeholder="Search history..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full rounded-xl border border-white/10 bg-white/[0.02] py-2 pl-10 pr-4 text-sm text-white placeholder-gray-500 outline-none transition-all focus:border-brand-500/40 focus:bg-white/[0.04]"
+              />
+            </div>
           </div>
         </div>
 
+        {/* Dynamic Category Hashtags Bar */}
+        {getAllHashtags().length > 0 && (
+          <div className="flex items-center gap-2 mb-6 overflow-x-auto pb-2 border-b border-white/5 scrollbar-thin">
+            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-0.5 shrink-0">
+              <Hash className="h-3.5 w-3.5 text-brand-500" /> Tag Categories:
+            </span>
+            <div className="flex items-center gap-1.5">
+              {getAllHashtags().map((tag) => (
+                <button
+                  key={tag}
+                  onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}
+                  className={`text-[10px] font-semibold px-2.5 py-1 rounded-full transition-all cursor-pointer shrink-0 ${
+                    selectedTag === tag 
+                      ? "bg-brand-600 text-white border border-brand-500" 
+                      : "bg-white/5 border border-white/5 text-gray-400 hover:text-white hover:bg-white/10"
+                  }`}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 sm:gap-8">
-          {/* Form Section */}
-          <section className="xl:col-span-1">
+          {/* Form and Visual Map widgets */}
+          <section className="xl:col-span-1 space-y-6">
             <div className="rounded-2xl border border-white/5 bg-white/[0.01] p-5 sm:p-6 backdrop-blur-xl">
               <h3 className="text-base sm:text-lg font-semibold text-white mb-4 flex items-center gap-2">
                 <Plus className="h-5 w-5 text-brand-500" /> Sync New Item
               </h3>
 
-              {/* Selector Tabs */}
               <div className="grid grid-cols-4 gap-1 p-1 rounded-xl bg-white/[0.03] border border-white/5 mb-6">
                 {["text", "code", "file", "image"].map((type) => (
                   <button
@@ -1539,7 +1590,6 @@ export default function Dashboard() {
               </div>
 
               <form onSubmit={handleAddItem} className="space-y-4">
-                {/* E2EE Toggle */}
                 {encryptionKey && (
                   <div className="flex items-center justify-between p-3 rounded-xl border border-brand-500/20 bg-brand-500/5">
                     <span className="text-xs font-semibold text-white flex items-center gap-1.5">
@@ -1662,7 +1712,6 @@ export default function Dashboard() {
                   </div>
                 )}
 
-                {/* Expiration Settings */}
                 <div className="grid grid-cols-2 gap-3 pt-2">
                   <div>
                     <label className="block text-[10px] font-semibold text-gray-400 mb-1 uppercase tracking-wider">Expires In</label>
@@ -1705,7 +1754,15 @@ export default function Dashboard() {
               </form>
             </div>
 
-            {/* Sync Activity Tracker */}
+            {/* Sync Nodes Canvas Topology Map (Desktop viewports >= 1280px) */}
+            <div className="hidden xl:block rounded-2xl border border-white/5 bg-white/[0.01] p-5 sm:p-6 text-center relative overflow-hidden">
+              <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block text-left mb-3">Sync Network Nodes Map</span>
+              <div className="bg-black/10 rounded-xl border border-white/5 py-3 flex items-center justify-center relative">
+                <canvas ref={canvasRef} className="rounded" />
+              </div>
+            </div>
+
+            {/* Sync Activity contribution calendar */}
             <div className="rounded-2xl border border-white/5 bg-white/[0.01] p-5 sm:p-6 mt-6">
               <h4 className="text-xs font-extrabold text-white uppercase tracking-wider mb-3 flex items-center gap-1.5">
                 <Clock className="h-4 w-4 text-brand-500" /> Sync Activity (30 Days)
@@ -1735,23 +1792,6 @@ export default function Dashboard() {
 
           {/* List Section */}
           <section className="xl:col-span-2 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base sm:text-lg font-semibold text-white mb-2 flex items-center gap-2 m-0">
-                Sync History 
-                <span className="text-xs font-normal text-gray-500 bg-white/5 border border-white/5 px-2 py-0.5 rounded-full">
-                  {filteredItems.length}
-                </span>
-              </h3>
-              {selectedTag && (
-                <button
-                  onClick={() => setSelectedTag(null)}
-                  className="text-xs text-brand-500 hover:text-brand-400 font-semibold cursor-pointer"
-                >
-                  Clear Tag Filter: {selectedTag}
-                </button>
-              )}
-            </div>
-
             {loading ? (
               <div className="space-y-4">
                 {[1, 2, 3].map((val) => (
@@ -1786,7 +1826,7 @@ export default function Dashboard() {
                           {getIcon(item.type, item.locked)}
                         </div>
                         <div className="min-w-0">
-                          <h4 className="text-sm font-semibold text-white m-0 truncate max-w-[150px] xs:max-w-[200px] sm:max-w-md flex flex-wrap items-center gap-1.5">
+                          <h4 className="text-sm font-semibold text-white m-0 truncate max-w-[150px] xs:max-w-[200px] sm:max-w-md flex flex-wrap items-center gap-1.5 font-sans">
                             {item.title}
                             {item.is_encrypted && (
                               <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
@@ -1859,14 +1899,13 @@ export default function Dashboard() {
                       </div>
                     </div>
 
-                    {/* Rendering item content */}
                     <div className="mt-4 text-sm text-gray-300">
                       {item.locked ? (
                         <div className="bg-red-500/5 border border-red-500/10 rounded-xl p-4 flex items-center gap-3 text-red-400">
                           <Lock className="h-5 w-5 flex-shrink-0" />
                           <div>
                             <p className="font-semibold text-xs m-0">Item encrypted client-side</p>
-                            <p className="text-[10px] text-gray-400 m-0 mt-0.5">Please unlock E2EE by entering your passphrase in the sidebar to access.</p>
+                            <p className="text-[10px] text-gray-400 m-0 mt-0.5">Please unlock E2EE by entering your passphrase in the header to access.</p>
                           </div>
                         </div>
                       ) : (
@@ -1950,7 +1989,7 @@ export default function Dashboard() {
                               <div className="min-w-0 flex-1">
                                 <h5 className="font-semibold text-xs text-white truncate">{previews[item.id].title}</h5>
                                 <p className="text-[10px] text-gray-400 mt-1 line-clamp-2">{previews[item.id].description}</p>
-                                <a href={previews[item.id].url} target="_blank" rel="noreferrer" className="text-[9px] text-brand-500 mt-1 font-semibold flex items-center gap-0.5 hover:underline">
+                                <a href={previews[item.id].url} target="_blank" rel="noreferrer" className="text-[9px] text-brand-500 mt-1 font-semibold flex items-center gap-0.5 hover:underline font-sans">
                                   Go to link <ExternalLink className="h-2 w-2" />
                                 </a>
                               </div>
@@ -1981,7 +2020,7 @@ export default function Dashboard() {
             <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
               <Share2 className="h-5 w-5 text-brand-500" /> Share Clipboard Item
             </h3>
-            <p className="text-xs text-gray-400 mb-6">Create a secure link for "{shareItem.title}"</p>
+            <p className="text-xs text-gray-400 mb-6 font-sans">Create a secure link for "{shareItem.title}"</p>
 
             {!generatedLink ? (
               <form onSubmit={handleGenerateShareLink} className="space-y-4">
@@ -2038,19 +2077,21 @@ export default function Dashboard() {
               </form>
             ) : (
               <div className="space-y-4">
-                <div className="bg-black/20 border border-white/5 rounded-xl p-3.5 flex items-center justify-between gap-3">
-                  <span className="text-xs text-brand-500 font-mono truncate max-w-xs select-all">
+                <div className="bg-black/20 border border-white/5 rounded-xl p-3.5 flex items-center justify-between gap-3 font-mono">
+                  <span className="text-xs text-brand-500 truncate max-w-xs select-all">
                     {generatedLink}
                   </span>
                   <button
-                    onClick={() => navigator.clipboard.writeText(generatedLink)}
+                    onClick={() => {
+                      navigator.clipboard.writeText(generatedLink);
+                      toast.success("Copied share link!");
+                    }}
                     className="p-2 rounded-lg bg-white/5 hover:bg-white/10 hover:text-brand-500 transition-all shrink-0 cursor-pointer"
                     title="Copy sharing link"
                   >
                     <Copy className="h-4 w-4" />
                   </button>
                 </div>
-
                 <button
                   onClick={() => setShowShareModal(false)}
                   className="w-full rounded-xl bg-white/5 border border-white/10 py-3 text-sm font-semibold text-white transition-all hover:bg-white/10 cursor-pointer"
@@ -2081,7 +2122,7 @@ export default function Dashboard() {
               Enter your secret decryption password. This is stored only in your browser memory and used to encrypt/decrypt synced cloud items.
             </p>
 
-            <form onSubmit={handleSetPassphrase} className="space-y-4">
+            <form onSubmit={handleSetPassphrase} className="space-y-4 font-sans">
               <div>
                 <label className="block text-xs font-medium text-gray-400 mb-1.5">Encryption Passphrase</label>
                 <div className="relative">
@@ -2103,10 +2144,9 @@ export default function Dashboard() {
                   </button>
                 </div>
               </div>
-
               <button
                 type="submit"
-                className="w-full rounded-xl bg-brand-600 py-3 text-sm font-semibold text-white transition-all hover:bg-brand-500 flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full rounded-xl bg-brand-600 py-3 text-sm font-semibold text-white transition-all hover:bg-brand-500 flex items-center justify-center gap-2 cursor-pointer font-sans"
               >
                 Activate E2EE Keys
               </button>
