@@ -111,6 +111,7 @@ export default function QuickShare() {
 
   const handleCreateSession = () => {
     if (socket) {
+      if (!socket.connected) socket.connect();
       socket.emit("request-quick-session");
     }
   };
@@ -122,6 +123,7 @@ export default function QuickShare() {
       return;
     }
     if (socket) {
+      if (!socket.connected) socket.connect();
       socket.emit("join-quick-session", { code: joinCodeInput.trim() });
     }
   };
@@ -353,6 +355,7 @@ export default function QuickShare() {
                 setStep("select");
                 setSharedItems([]);
                 setCode("");
+                setPeerConnected(false);
               }}
               className="rounded-xl bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 px-4 py-2 text-xs font-semibold text-red-400 transition-all cursor-pointer"
             >

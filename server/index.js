@@ -61,8 +61,10 @@ io.on("connection", (socket) => {
   });
 
   // --- Real-time Presence ---
-  socket.on("presence-join", ({ user_id, email, device }) => {
-    presenceMap.set(socket.id, { user_id, email, device });
+  socket.on("presence-join", (payload) => {
+    if (!payload || !payload.user_id || !payload.email) return;
+    const { user_id, email, device } = payload;
+    presenceMap.set(socket.id, { user_id, email, device: device || "Web Browser" });
 
     // Broadcast updated presence list to user's room (all their devices)
     const userPresence = Array.from(presenceMap.values()).filter(

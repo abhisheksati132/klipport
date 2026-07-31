@@ -271,8 +271,6 @@ begin
   limit 1;
 end;
 $$ language plpgsql;
-alter table clipboard_items add column if not exists self_destruct boolean default false;
-alter table clipboard_items add column if not exists expires_at timestamp with time zone;
 alter table clipboard_items add column if not exists file_size integer;
 alter table clipboard_items add column if not exists is_deleted boolean default false;
 alter table clipboard_items add column if not exists deleted_at timestamp with time zone;
@@ -296,6 +294,10 @@ create policy "Anyone can read public keys"
 create policy "Users can upsert their own public key"
   on user_public_keys for insert
   with check (auth.uid() = user_id);
+
+create policy "Users can update their own public key"
+  on user_public_keys for update
+  using (auth.uid() = user_id);
 
 -- Create workspace_vault_keys table
 create table if not exists workspace_vault_keys (

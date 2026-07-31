@@ -31,13 +31,10 @@ import {
   Plus,
   Search,
   ExternalLink,
-  Wifi,
-  WifiOff,
   Share2,
   Lock,
   X,
   Shield,
-  ShieldAlert,
   ShieldCheck,
   Download,
   Menu,
@@ -50,7 +47,6 @@ import {
   MicOff,
   Flame,
   Clock,
-  Laptop,
   Key,
   Hash,
   CheckSquare,
@@ -639,6 +635,7 @@ export default function Dashboard() {
       } catch (err) {
         console.error("Failed to load workspace encryption keys:", err);
         setWorkspaceEncryptionKey(null);
+        toast.error("Failed to load workspace E2EE encryption key.");
       }
     };
 
@@ -835,15 +832,15 @@ export default function Dashboard() {
     return Array.from(tags);
   };
 
-  const fetchItems = async (userId) => {
+  const fetchItems = async (userId, targetWorkspace = activeWorkspace) => {
     setLoading(true);
     let query = supabase
       .from("clipboard_items")
       .select("*")
       .order("created_at", { ascending: false });
 
-    if (activeWorkspace) {
-      query = query.eq("workspace_id", activeWorkspace.id);
+    if (targetWorkspace) {
+      query = query.eq("workspace_id", targetWorkspace.id);
     } else {
       query = query.is("workspace_id", null).eq("user_id", userId);
     }
@@ -854,7 +851,7 @@ export default function Dashboard() {
       try {
         const cachedClips = await getCachedHistoryClips();
         const filteredCached = cachedClips.filter(c => 
-          activeWorkspace ? c.workspace_id === activeWorkspace.id : !c.workspace_id && c.user_id === userId
+          targetWorkspace ? c.workspace_id === targetWorkspace.id : !c.workspace_id && c.user_id === userId
         );
         filteredCached.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
         setRawItems(filteredCached);
@@ -980,7 +977,7 @@ export default function Dashboard() {
         .single();
 
       if (pkError || !pkData) {
-        toast.error("teammate public keys not found. They must set up their E2EE passphrase first.");
+        toast.error("Teammate's public keys not found. They must set up their E2EE passphrase first.");
         setWorkspaceSubmitting(false);
         return;
       }
@@ -1135,7 +1132,9 @@ export default function Dashboard() {
     }
 
     setGeneratingLink(true);
-    const token = Math.random().toString(36).substring(2, 14);
+    const randomBytes = new Uint8Array(12);
+    window.crypto.getRandomValues(randomBytes);
+    const token = Array.from(randomBytes).map(b => b.toString(16).padStart(2, '0')).join('');
 
     try {
       const { error } = await supabase.rpc("create_shared_link", {

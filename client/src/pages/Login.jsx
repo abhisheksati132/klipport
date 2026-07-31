@@ -29,6 +29,7 @@ export default function Login() {
       setLoading(false);
     } else {
       toast.success("Successfully logged in!");
+      setLoading(false);
       navigate("/dashboard");
     }
   };

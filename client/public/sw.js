@@ -10,7 +10,6 @@ const PRECACHE_ASSETS = [
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log("[Service Worker] Precaching critical assets");
       return cache.addAll(PRECACHE_ASSETS);
     })
   );
@@ -24,7 +23,6 @@ self.addEventListener("activate", (event) => {
       return Promise.all(
         cacheNames.map((cache) => {
           if (cache !== CACHE_NAME) {
-            console.log("[Service Worker] Clearing old cache:", cache);
             return caches.delete(cache);
           }
         })
