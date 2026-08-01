@@ -17,7 +17,13 @@ import {
   encryptPrivateKey,
   decryptPrivateKey
 } from "../utils/crypto";
-import Tesseract from "tesseract.js";
+import {
+  cacheHistoryClips,
+  getCachedHistoryClips,
+  saveOfflineClip,
+  getOfflineClips,
+  deleteOfflineClip
+} from "../utils/indexedDB";
 import {
   Clipboard,
   FileText,
@@ -57,81 +63,7 @@ import {
   UserCheck
 } from "lucide-react";
 
-// --- IndexedDB Configuration for Offline Caching ---
-const openIndexedDB = () => {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open("KlipportOffline", 2); // Version 2 supporting cache
-    request.onupgradeneeded = (e) => {
-      const db = e.target.result;
-      if (!db.objectStoreNames.contains("offline_clips")) {
-        db.createObjectStore("offline_clips", { keyPath: "id", autoIncrement: true });
-      }
-      if (!db.objectStoreNames.contains("history_cache")) {
-        db.createObjectStore("history_cache", { keyPath: "id" });
-      }
-    };
-    request.onsuccess = (e) => resolve(e.target.result);
-    request.onerror = (e) => reject(e.target.error);
-  });
-};
 
-const cacheHistoryClips = async (clips) => {
-  const db = await openIndexedDB();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction("history_cache", "readwrite");
-    const store = transaction.objectStore("history_cache");
-    store.clear();
-    clips.forEach((clip) => {
-      store.put(clip);
-    });
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = (e) => reject(e.target.error);
-  });
-};
-
-const getCachedHistoryClips = async () => {
-  const db = await openIndexedDB();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction("history_cache", "readonly");
-    const store = transaction.objectStore("history_cache");
-    const request = store.getAll();
-    request.onsuccess = () => resolve(request.result || []);
-    request.onerror = (e) => reject(e.target.error);
-  });
-};
-
-const saveOfflineClip = async (clip) => {
-  const db = await openIndexedDB();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction("offline_clips", "readwrite");
-    const store = transaction.objectStore("offline_clips");
-    const request = store.add(clip);
-    request.onsuccess = () => resolve();
-    request.onerror = (e) => reject(e.target.error);
-  });
-};
-
-const getOfflineClips = async () => {
-  const db = await openIndexedDB();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction("offline_clips", "readonly");
-    const store = transaction.objectStore("offline_clips");
-    const request = store.getAll();
-    request.onsuccess = () => resolve(request.result || []);
-    request.onerror = (e) => reject(e.target.error);
-  });
-};
-
-const deleteOfflineClip = async (id) => {
-  const db = await openIndexedDB();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction("offline_clips", "readwrite");
-    const store = transaction.objectStore("offline_clips");
-    const request = store.delete(id);
-    request.onsuccess = () => resolve();
-    request.onerror = (e) => reject(e.target.error);
-  });
-};
 
 // --- Custom Code Highlighter ---
 function highlightCode(code) {
@@ -733,6 +665,17 @@ export default function Dashboard() {
     }
   };
 
+  // Cleanup Object URLs on unmount to prevent browser memory leaks
+  useEffect(() => {
+    return () => {
+      Object.values(decryptedFiles).forEach((url) => {
+        if (url && typeof url === "string" && url.startsWith("blob:")) {
+          URL.revokeObjectURL(url);
+        }
+      });
+    };
+  }, [decryptedFiles]);
+
   const handleChecklistToggle = async (item, index, currentState) => {
     let content = item.content;
     const checkboxRegex = /-\s*\[([ xX])\]/g;
@@ -1304,6 +1247,7 @@ export default function Dashboard() {
         if (itemType === "image" && file.type.startsWith("image/")) {
           toast.loading("Running Tesseract OCR on image...", { id: "ocr" });
           try {
+            const { default: Tesseract } = await import("tesseract.js");
             const ocrResult = await Tesseract.recognize(file, "eng");
             if (ocrResult.data.text.trim()) {
               contentVal = ocrResult.data.text.trim();

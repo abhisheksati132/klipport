@@ -325,3 +325,10 @@ alter table user_public_keys add column if not exists encrypted_private_key text
 alter table user_public_keys add column if not exists private_key_iv text;
 alter table user_public_keys add column if not exists user_email text;
 
+-- Performance Indexes for fast history queries
+create index if not exists idx_clipboard_items_user_id on clipboard_items (user_id);
+create index if not exists idx_clipboard_items_workspace_id on clipboard_items (workspace_id);
+create index if not exists idx_clipboard_items_created_at on clipboard_items (created_at desc);
+create index if not exists idx_clipboard_items_is_deleted on clipboard_items (is_deleted);
+
+

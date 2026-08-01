@@ -217,9 +217,16 @@ async function handleGet() {
 const args = process.argv.slice(2);
 const command = args[0];
 
+const pkg = require("./package.json");
+
+if (command === "--version" || command === "-v") {
+  console.log(`klipport-cli v${pkg.version}`);
+  process.exit(0);
+}
+
 if (!command || command === "--help" || command === "-h") {
   console.log(`
-Klipport Desktop CLI Companion
+Klipport Desktop CLI Companion v${pkg.version}
 Usage:
   klipport login         Log in to your Klipport account
   klipport get           Retrieve your latest cloud clipboard item
@@ -227,7 +234,8 @@ Usage:
   echo "logs" | klipport  Pipe console output directly to the cloud
 
 Options:
-  --title, -t            Set custom title when pushing clips
+  --help, -h             Show help information
+  --version, -v          Show CLI version
   `);
   process.exit(0);
 }
