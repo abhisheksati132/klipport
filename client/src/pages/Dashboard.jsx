@@ -1992,7 +1992,7 @@ export default function Dashboard() {
                   onClick={() => setActiveTab(tab)}
                   className={`a-tab ${activeTab === tab ? "active" : ""}`}
                 >
-                  {tab === "all" ? "All" : tab === "files" ? "Files" : tab}
+                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
                 </button>
               ))}
             </div>
@@ -2416,7 +2416,7 @@ export default function Dashboard() {
                             {getIcon(item.type, item.locked)}
                           </div>
                           <div className="min-w-0 flex flex-col justify-center">
-                            <h4 className="text-[14px] font-semibold m-0 truncate max-w-[150px] xs:max-w-[200px] sm:max-w-md flex flex-wrap items-center gap-1.5" style={{ color: "var(--text1)", letterSpacing: "-0.01em" }}>
+                            <h4 className="text-[14px] font-semibold m-0 truncate max-w-[180px] sm:max-w-xs md:max-w-sm lg:max-w-md flex flex-wrap items-center gap-1.5" style={{ color: "var(--text1)", letterSpacing: "-0.01em" }}>
                               {item.title}
                               {item.is_pinned && (
                                 <span className="a-tag a-tag-amber"><Pin className="h-2.5 w-2.5" /> Pinned</span>
@@ -2546,24 +2546,29 @@ export default function Dashboard() {
                             )}
 
                             {item.type === "image" && (
-                              <div className="space-y-2">
-                                <div className="relative mt-2 max-w-sm rounded-xl overflow-hidden transition-all" style={{ border: "1px solid var(--border)" }}>
+                              <div className="flex gap-3 mt-2">
+                                {/* Image thumbnail – fixed width */}
+                                <div className="relative shrink-0 w-36 h-36 rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
                                   {item.is_encrypted ? (
                                     decryptedFiles[item.id] ? (
-                                      <img src={decryptedFiles[item.id]} alt={item.title} className="w-full h-auto max-h-64 object-cover" />
+                                      <img src={decryptedFiles[item.id]} alt={item.title} className="w-full h-full object-cover" />
                                     ) : (
-                                      <div className="h-32 flex items-center justify-center text-xs animate-pulse" style={{ background: "var(--fill2)", color: "var(--text3)" }}>Decrypting image binary...</div>
+                                      <div className="w-full h-full flex items-center justify-center text-xs animate-pulse" style={{ background: "var(--fill2)", color: "var(--text3)" }}>Decrypting…</div>
                                     )
                                   ) : (
-                                    <img src={item.file_url} alt={item.title} className="w-full h-auto max-h-64 object-cover" />
+                                    <img src={item.file_url} alt={item.title} className="w-full h-full object-cover" />
                                   )}
                                 </div>
-                                {item.content && item.content !== item.title && (
-                                  <div className="p-3 rounded-xl text-[10px] font-mono whitespace-pre-wrap max-h-24 overflow-y-auto" style={{ background: "var(--fill1)", border: "1px solid var(--border)" }}>
-                                    <span className="text-[9px] font-bold block mb-1" style={{ color: "var(--cyan)" }}>🔍 EXTRACTED OCR TEXT:</span>
-                                    {item.content}
-                                  </div>
-                                )}
+                                {/* Details alongside the image */}
+                                <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+                                  <p className="text-[11px] font-semibold truncate" style={{ color: "var(--text2)" }}>{item.title}</p>
+                                  {item.content && item.content !== item.title && (
+                                    <div className="p-2.5 rounded-xl text-[10px] font-mono whitespace-pre-wrap overflow-y-auto flex-1" style={{ background: "var(--fill1)", border: "1px solid var(--border)", maxHeight: "120px" }}>
+                                      <span className="text-[9px] font-bold block mb-1" style={{ color: "var(--cyan)" }}>🔍 OCR TEXT:</span>
+                                      {item.content}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             )}
 
