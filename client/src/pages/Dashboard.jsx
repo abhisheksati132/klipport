@@ -2546,31 +2546,32 @@ export default function Dashboard() {
                             )}
 
                             {item.type === "image" && (
-                              <div className="flex gap-3 mt-2 items-start">
-                                {/* Square thumbnail */}
-                                <div className="relative shrink-0 rounded-xl overflow-hidden" style={{ width: "130px", height: "130px", border: "1px solid var(--border)", minWidth: "130px" }}>
+                              <div style={{ display: "grid", gridTemplateColumns: "130px 1fr", gap: "12px", marginTop: "10px", alignItems: "start" }}>
+                                {/* Thumbnail - fixed 130px column */}
+                                <div style={{ width: "130px", height: "130px", borderRadius: "12px", overflow: "hidden", border: "1px solid var(--border)", flexShrink: 0 }}>
                                   {item.is_encrypted ? (
                                     decryptedFiles[item.id] ? (
-                                      <img src={decryptedFiles[item.id]} alt={item.title} className="w-full h-full object-cover" />
+                                      <img src={decryptedFiles[item.id]} alt={item.title} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                                     ) : (
-                                      <div className="w-full h-full flex items-center justify-center text-xs animate-pulse" style={{ background: "var(--fill2)", color: "var(--text3)" }}>Decrypting…</div>
+                                      <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", background: "var(--fill2)", color: "var(--text3)" }}>Decrypting…</div>
                                     )
                                   ) : (
-                                    <img src={item.file_url} alt={item.title} className="w-full h-full object-cover" />
+                                    <img src={item.file_url} alt={item.title} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                                   )}
                                 </div>
-                                {/* Details panel – flex-1 fills remaining width */}
-                                <div className="flex-1 flex flex-col gap-2" style={{ minWidth: 0 }}>
-                                  <p className="text-[13px] font-semibold" style={{ color: "var(--text1)", wordBreak: "break-word", overflowWrap: "anywhere" }}>{item.title}</p>
+                                {/* Details - fills remaining space */}
+                                <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: "8px" }}>
+                                  <p style={{ fontSize: "13px", fontWeight: 600, margin: 0, color: "var(--text1)", wordBreak: "break-word", overflowWrap: "anywhere", lineHeight: "1.4" }}>{item.title}</p>
                                   {item.content && item.content !== item.title && (
-                                    <div className="p-3 rounded-xl text-[12px] font-mono overflow-y-auto" style={{ background: "var(--fill1)", border: "1px solid var(--border)", color: "var(--text2)", lineHeight: "1.6", whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: "200px" }}>
-                                      <span className="text-[10px] font-bold block mb-1.5" style={{ color: "var(--cyan)", letterSpacing: "0.05em" }}>🔍 OCR TEXT</span>
+                                    <div style={{ padding: "10px 12px", borderRadius: "10px", background: "var(--fill1)", border: "1px solid var(--border)", color: "var(--text2)", fontSize: "13px", lineHeight: "1.65", whiteSpace: "pre-wrap", wordBreak: "break-word", overflowY: "auto", maxHeight: "200px", fontFamily: "var(--font-mono, monospace)" }}>
+                                      <span style={{ fontSize: "10px", fontWeight: 700, display: "block", marginBottom: "6px", color: "var(--cyan)", letterSpacing: "0.06em", textTransform: "uppercase" }}>🔍 OCR Text</span>
                                       {item.content}
                                     </div>
                                   )}
                                 </div>
                               </div>
                             )}
+
 
                             {item.type === "file" && (
                               <div className="flex items-center justify-between px-4 py-3 rounded-xl" style={{ background: "var(--fill1)", border: "1px solid var(--border)" }}>
