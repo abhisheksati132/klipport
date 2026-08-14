@@ -1663,7 +1663,7 @@ export default function Dashboard() {
             <Clipboard className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-xl font-bold tracking-tight text-white m-0 font-sans">Klipport</h2>
+            <h2 className="text-xl font-bold tracking-tight m-0 font-sans" style={{ color: "var(--text1)" }}>Klipport</h2>
             <span className="text-xs text-brand-500 font-semibold tracking-wider uppercase">Cloud Settings</span>
           </div>
         </div>
@@ -1967,7 +1967,7 @@ export default function Dashboard() {
         {/* Workspace Title & Search / Tag filter sub-bar */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white m-0 flex items-center gap-3">
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight m-0 flex items-center gap-3" style={{ color: "var(--text1)" }}>
               {activeWorkspace ? activeWorkspace.name : "Universal Clipboard"}
               {activeWorkspace && (
                 <button
@@ -1978,7 +1978,7 @@ export default function Dashboard() {
                 </button>
               )}
             </h1>
-            <p className="mt-1 text-xs sm:text-sm text-gray-400">
+            <p className="mt-1 text-xs sm:text-sm" style={{ color: "var(--text2)" }}>
               {activeWorkspace ? "Collaborating with teammates in real-time." : "Instantly share notes, code, and files across all your devices."}
             </p>
           </div>
@@ -2629,7 +2629,7 @@ export default function Dashboard() {
             <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2 font-sans">
               <Share2 className="h-5 w-5 text-brand-500" /> Share Clipboard Item
             </h3>
-            <p className="text-xs text-gray-400 mb-6 font-sans">Create a secure link for "{shareItem.title}"</p>
+            <p className="text-xs mb-6 font-sans" style={{ color: "var(--text2)" }}>Create a secure link for "{shareItem.title}"</p>
 
             {!generatedLink ? (
               <form onSubmit={handleGenerateShareLink} className="space-y-4">
@@ -2720,16 +2720,16 @@ export default function Dashboard() {
               <X className="h-5 w-5" />
             </button>
 
-            <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
+            <h3 className="text-xl font-bold mb-1 flex items-center gap-2" style={{ color: "var(--text1)" }}>
               <Shield className="h-5 w-5 text-brand-500" /> E2EE Passphrase
             </h3>
-            <p className="text-xs text-gray-400 mb-6 font-sans">
+            <p className="text-xs mb-6 font-sans" style={{ color: "var(--text2)" }}>
               Enter your secret decryption password. This is stored only in your browser memory and used to encrypt/decrypt synced cloud items.
             </p>
 
             <form onSubmit={handleSetPassphrase} className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-gray-400 mb-1.5">Encryption Passphrase</label>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text2)" }}>Encryption Passphrase</label>
                 <div className="relative">
                   <Lock className="absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-500" />
                   <input
@@ -2737,7 +2737,7 @@ export default function Dashboard() {
                     value={passphraseInput}
                     onChange={(e) => setPassphraseInput(e.target.value)}
                     placeholder="Enter secret passphrase"
-                    className="a-input pl-11 pr-10"
+                    className="a-input !pl-11 !pr-10"
                     required
                   />
                   <button
@@ -2768,10 +2768,10 @@ export default function Dashboard() {
               <X className="h-5 w-5" />
             </button>
 
-            <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
+            <h3 className="text-xl font-bold mb-1 flex items-center gap-2" style={{ color: "var(--text1)" }}>
               <Key className="h-5 w-5 text-brand-500" /> CLI Access Tokens
             </h3>
-            <p className="text-xs text-gray-400 mb-6">
+            <p className="text-xs mb-6" style={{ color: "var(--text2)" }}>
               Generate Personal Access Tokens (PAT) to log in to the Desktop CLI Companion securely without typing your account password.
             </p>
 
@@ -2783,7 +2783,7 @@ export default function Dashboard() {
                     value={newTokenName}
                     onChange={(e) => setNewTokenName(e.target.value)}
                     placeholder="Token name (e.g. My Laptop)"
-                    className="w-full rounded-xl border border-white/10 bg-white/[0.02] py-2.5 px-4 text-sm text-white placeholder-gray-500 outline-none focus:border-brand-500/30"
+                    className="a-input"
                     required
                   />
                 </div>
@@ -2855,10 +2855,10 @@ export default function Dashboard() {
               <X className="h-5 w-5" />
             </button>
 
-            <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
+            <h3 className="text-xl font-bold mb-1 flex items-center gap-2" style={{ color: "var(--text1)" }}>
               <Briefcase className="h-5 w-5 text-brand-500" /> Create Workspace
             </h3>
-            <p className="text-xs text-gray-400 mb-6">
+            <p className="text-xs mb-6" style={{ color: "var(--text2)" }}>
               Create a shared environment to collaborate on files, links, and code snippets with your team.
             </p>
 
@@ -2894,10 +2894,10 @@ export default function Dashboard() {
               <X className="h-5 w-5" />
             </button>
 
-            <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
+            <h3 className="text-xl font-bold mb-1 flex items-center gap-2" style={{ color: "var(--text1)" }}>
               <Users className="h-5 w-5 text-brand-500" /> Invite to "{activeWorkspace.name}"
             </h3>
-            <p className="text-xs text-gray-400 mb-6">
+            <p className="text-xs mb-6" style={{ color: "var(--text2)" }}>
               Add a teammate by entering their email address. They will be able to view and publish items to this workspace.
             </p>
 
@@ -2933,10 +2933,10 @@ export default function Dashboard() {
               <X className="h-5 w-5" />
             </button>
 
-            <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
+            <h3 className="text-xl font-bold mb-1 flex items-center gap-2" style={{ color: "var(--text1)" }}>
               <Sparkles className="h-5 w-5 text-brand-500 animate-pulse" /> AI Clipboard Copilot
             </h3>
-            <p className="text-xs text-gray-400 mb-6">
+            <p className="text-xs mb-6" style={{ color: "var(--text2)" }}>
               Transform, analyze, and sync your clipboard content using Gemini.
             </p>
 
@@ -3153,10 +3153,10 @@ export default function Dashboard() {
             >
               <X className="h-5 w-5" />
             </button>
-            <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
+            <h3 className="text-xl font-bold mb-1 flex items-center gap-2" style={{ color: "var(--text1)" }}>
               <Keyboard className="h-5 w-5 text-brand-500" /> Keyboard Shortcuts
             </h3>
-            <p className="text-xs text-gray-400 mb-6">Use these shortcuts to navigate Klipport faster.</p>
+            <p className="text-xs mb-6" style={{ color: "var(--text2)" }}>Use these shortcuts to navigate Klipport faster.</p>
             <div className="space-y-3">
               {[
                 { keys: ["Ctrl", "K"], desc: "Focus search bar" },
