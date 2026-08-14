@@ -2185,55 +2185,56 @@ export default function Dashboard() {
 
 
 
-            {/* Storage Quota utilization tracker */}
-            <div className="a-panel p-5 sm:p-6 mt-6">
-              <h4 className="text-xs font-extrabold uppercase tracking-wider mb-3 flex items-center gap-1.5" style={{ color: "var(--text1)" }}>
-                <HardDrive className="h-4 w-4" style={{ color: "var(--brand)" }} /> Storage Utilization
-              </h4>
-              <div className="space-y-2">
-                <div className="flex justify-between text-[11px] font-semibold" style={{ color: "var(--text2)" }}>
-                  <span>{(rawItems.reduce((acc, curr) => acc + (curr.file_size || 0), 0) / 1024 / 1024).toFixed(2)} MB used</span>
-                  <span>50.00 MB Limit</span>
-                </div>
-                <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: "var(--fill2)" }}>
-                  <div 
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{ 
-                      background: "var(--brand)",
-                      width: `${Math.min((rawItems.reduce((acc, curr) => acc + (curr.file_size || 0), 0) / (50 * 1024 * 1024)) * 100, 100)}%` 
-                    }}
-                  ></div>
-                </div>
-                <span className="text-[10px] block text-right font-semibold" style={{ color: "var(--text3)" }}>
-                  {((rawItems.reduce((acc, curr) => acc + (curr.file_size || 0), 0) / (50 * 1024 * 1024)) * 100).toFixed(1)}% full
-                </span>
-              </div>
-            </div>
-
-            {/* Sync Activity contribution calendar */}
-            <div className="a-panel p-5 sm:p-6 mt-6">
-              <h4 className="text-xs font-extrabold uppercase tracking-wider mb-3 flex items-center gap-1.5" style={{ color: "var(--text1)" }}>
-                <Clock className="h-4 w-4" style={{ color: "var(--brand)" }} /> Sync Activity (30 Days)
-              </h4>
-              <div className="grid grid-cols-10 gap-1.5 p-3 rounded-xl" style={{ background: "var(--fill1)", border: "1px solid var(--border)" }}>
-                {getContributionGrid().map((day, idx) => (
-                  <div
-                    key={idx}
-                    className={`h-5 w-5 rounded transition-all cursor-help relative group ${
-                      day.count === 0 
-                        ? "bg-white/[0.02]" 
-                        : day.count < 3 
-                        ? "bg-brand-500/20 text-brand-400" 
-                        : day.count < 6 
-                        ? "bg-brand-500/50 text-brand-300" 
-                        : "bg-brand-500 text-white"
-                    }`}
-                  >
-                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block z-10 bg-dark-card border border-white/10 px-2 py-1 rounded text-[9px] font-bold text-white whitespace-nowrap shadow-xl">
-                      {day.date}: {day.count} syncs
-                    </div>
+            {/* System Status Widget (Combined Storage & Sync) */}
+            <div className="a-panel overflow-hidden mt-6">
+              {/* Storage Quota utilization tracker */}
+              <div className="p-4 sm:p-5 border-b" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+                <h4 className="text-[11px] font-extrabold uppercase tracking-wider mb-3 flex items-center gap-1.5" style={{ color: "var(--text1)" }}>
+                  <HardDrive className="h-3.5 w-3.5" style={{ color: "var(--brand)" }} /> Storage
+                </h4>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-[11px] font-semibold" style={{ color: "var(--text2)" }}>
+                    <span>{(rawItems.reduce((acc, curr) => acc + (curr.file_size || 0), 0) / 1024 / 1024).toFixed(2)} MB used</span>
+                    <span>50.00 MB Limit</span>
                   </div>
-                ))}
+                  <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: "var(--fill2)" }}>
+                    <div 
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{ 
+                        background: "var(--brand)",
+                        width: `${Math.min((rawItems.reduce((acc, curr) => acc + (curr.file_size || 0), 0) / (50 * 1024 * 1024)) * 100, 100)}%` 
+                      }}
+                    ></div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sync Activity contribution calendar */}
+              <div className="p-4 sm:p-5" style={{ background: "var(--surface2)" }}>
+                <h4 className="text-[11px] font-extrabold uppercase tracking-wider mb-3 flex items-center gap-1.5" style={{ color: "var(--text1)" }}>
+                  <Clock className="h-3.5 w-3.5" style={{ color: "var(--brand)" }} /> Activity
+                </h4>
+                <div className="grid grid-cols-10 gap-1.5">
+                  {getContributionGrid().map((day, idx) => (
+                    <div
+                      key={idx}
+                      className={`h-4 w-4 sm:h-5 sm:w-5 rounded-[4px] transition-all cursor-help relative group ${
+                        day.count === 0 
+                          ? "bg-white/[0.04] dark:bg-white/[0.02]" 
+                          : day.count < 3 
+                          ? "bg-brand-500/20 text-brand-400" 
+                          : day.count < 6 
+                          ? "bg-brand-500/50 text-brand-300" 
+                          : "bg-brand-500 text-white"
+                      }`}
+                      style={day.count === 0 ? { background: "var(--fill2)" } : {}}
+                    >
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block z-10 px-2 py-1 rounded-lg text-[9px] font-bold whitespace-nowrap shadow-xl" style={{ background: "var(--surface3)", border: "1px solid var(--border)", color: "var(--text1)" }}>
+                        {day.date}: {day.count} syncs
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </section>
