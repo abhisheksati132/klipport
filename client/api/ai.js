@@ -71,6 +71,10 @@ function getPromptForAction(action, customPrompt) {
       return "Analyze the following code, correct any syntax errors or bugs, and return ONLY the corrected code. Do not add conversational intro/outro text, markdown wrapper lines like ```, or extra explanations—just return the clean, functional code.";
     case "ocr_json":
       return "The following text was extracted from an image via OCR. Clean up the spelling, format it as structured JSON, and return ONLY the clean JSON block. Do not add markdown wrappers or conversational text.";
+    case "translate":
+      return `Translate the following text to ${customPrompt || "Spanish"}. Return ONLY the translated text, no explanations or labels.`;
+    case "rewrite_tone":
+      return `Rewrite the following text in a ${customPrompt || "Formal"} tone. Return ONLY the rewritten text, no explanations or labels.`;
     case "custom":
       return customPrompt || "Analyze the following content and provide a helpful response.";
     default:

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { toast } from "react-hot-toast";
@@ -60,7 +60,12 @@ import {
   HardDrive,
   Sparkles,
   RotateCcw,
-  UserCheck
+  UserCheck,
+  Pin,
+  QrCode,
+  Globe,
+  Keyboard,
+  Tag
 } from "lucide-react";
 
 
@@ -219,6 +224,20 @@ export default function Dashboard() {
   // Copy success indicator state
   const [copiedId, setCopiedId] = useState(null);
 
+  // Bulk Select State
+  const [selectedClips, setSelectedClips] = useState(new Set());
+
+  // QR Code Modal State
+  const [showQrModal, setShowQrModal] = useState(false);
+  const [qrContent, setQrContent] = useState("");
+
+  // Keyboard Shortcuts Modal
+  const [showShortcutsModal, setShowShortcutsModal] = useState(false);
+
+  // AI Enhanced States
+  const [aiTranslateLang, setAiTranslateLang] = useState("Spanish");
+  const [aiTone, setAiTone] = useState("Formal");
+
   // New item form state
   const [itemType, setItemType] = useState("text");
   const [textContent, setTextContent] = useState("");
@@ -250,16 +269,38 @@ export default function Dashboard() {
   // Keyboard Shortcuts Hook
   useEffect(() => {
     const handleKeyDown = (e) => {
+      // Ctrl+K: focus search
       if ((e.ctrlKey || e.metaKey) && e.key === "k") {
         e.preventDefault();
         const searchInput = document.querySelector('input[placeholder="Search history..."]');
         if (searchInput) searchInput.focus();
       }
+      // Alt+N: new clip
       if (e.altKey && e.key === "n") {
         e.preventDefault();
         setItemType("text");
         const titleInput = document.querySelector('input[placeholder="Provide a name..."]');
         if (titleInput) titleInput.focus();
+      }
+      // Escape: close all modals + clear selection
+      if (e.key === "Escape") {
+        setShowShareModal(false);
+        setShowPassphraseModal(false);
+        setShowCliTokenModal(false);
+        setShowWorkspaceModal(false);
+        setShowInviteModal(false);
+        setShowAiModal(false);
+        setShowQrModal(false);
+        setShowShortcutsModal(false);
+        setMobileMenuOpen(false);
+        setSelectedClips(new Set());
+      }
+      // ?: show shortcuts help (only when not typing)
+      if (e.key === "?" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const active = document.activeElement;
+        if (active.tagName !== "INPUT" && active.tagName !== "TEXTAREA" && active.tagName !== "SELECT") {
+          setShowShortcutsModal(true);
+        }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -1019,7 +1060,7 @@ export default function Dashboard() {
       return;
     }
 
-    // Soft delete items (Move to Trash)
+    // Soft delete with 5-second undo window
     const { error } = await supabase
       .from("clipboard_items")
       .update({ is_deleted: true, deleted_at: new Date().toISOString() })
@@ -1028,8 +1069,37 @@ export default function Dashboard() {
     if (error) {
       toast.error("Failed to delete: " + error.message);
     } else {
-      toast.success("Moved clip to Trash Bin", { icon: "🗑️" });
-      
+      setRawItems((prev) => prev.map((item) => item.id === id ? { ...item, is_deleted: true } : item));
+
+      toast(
+        (t) => (
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <span style={{ fontSize: "13px" }}>Moved to Trash</span>
+            <button
+              onClick={async () => {
+                toast.dismiss(t.id);
+                const { error: restoreErr } = await supabase
+                  .from("clipboard_items")
+                  .update({ is_deleted: false, deleted_at: null })
+                  .eq("id", id);
+                if (!restoreErr) {
+                  setRawItems((prev) => prev.map((item) => item.id === id ? { ...item, is_deleted: false, deleted_at: null } : item));
+                  toast.success("Restored!", { icon: "↩️" });
+                }
+              }}
+              style={{
+                background: "#0078d4", color: "white", border: "none",
+                borderRadius: "8px", padding: "4px 12px", fontSize: "11px",
+                fontWeight: "bold", cursor: "pointer"
+              }}
+            >
+              Undo
+            </button>
+          </div>
+        ),
+        { icon: "🗑️", duration: 5000 }
+      );
+
       if (socket) {
         if (activeWorkspace) {
           socket.emit("workspace-clip-update", { workspace_id: activeWorkspace.id });
@@ -1037,8 +1107,6 @@ export default function Dashboard() {
           socket.emit("clip-update", { user_id: user.id });
         }
       }
-
-      setRawItems((prev) => prev.map((item) => item.id === id ? { ...item, is_deleted: true } : item));
     }
   };
 
@@ -1362,7 +1430,10 @@ export default function Dashboard() {
         body: JSON.stringify({
           action: actionType,
           content: aiItem.content,
-          customPrompt: isCustom ? aiCustomPrompt.trim() : undefined
+          customPrompt: actionType === "custom" ? aiCustomPrompt.trim()
+            : actionType === "translate" ? aiTranslateLang
+            : actionType === "rewrite_tone" ? aiTone
+            : undefined
         })
       });
 
@@ -1446,6 +1517,73 @@ export default function Dashboard() {
     return calendarDays;
   };
 
+  const getDateLabel = (item) => {
+    if (item.isOffline) return "Offline Queue";
+    const date = new Date(item.created_at);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    if (date.toDateString() === today.toDateString()) return "Today";
+    if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
+
+  const getWordCount = (content) => {
+    if (!content || typeof content !== "string") return { words: 0, chars: 0 };
+    const words = content.trim().split(/\s+/).filter(Boolean).length;
+    return { words, chars: content.length };
+  };
+
+  const handlePin = async (id, currentPinned) => {
+    const { error } = await supabase
+      .from("clipboard_items")
+      .update({ is_pinned: !currentPinned })
+      .eq("id", id);
+    if (!error) {
+      setRawItems(prev => prev.map(item => item.id === id ? { ...item, is_pinned: !currentPinned } : item));
+      toast.success(currentPinned ? "Unpinned" : "Pinned to top!", { icon: "📌" });
+    } else {
+      toast.error("Failed to pin: " + error.message);
+    }
+  };
+
+  const toggleClipSelect = (id) => {
+    setSelectedClips(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedClips.size === 0) return;
+    const ids = Array.from(selectedClips);
+    const { error } = await supabase
+      .from("clipboard_items")
+      .update({ is_deleted: true, deleted_at: new Date().toISOString() })
+      .in("id", ids);
+    if (!error) {
+      toast.success(`Moved ${ids.length} clip${ids.length > 1 ? "s" : ""} to Trash`, { icon: "🗑️" });
+      setRawItems(prev => prev.map(item => ids.includes(item.id) ? { ...item, is_deleted: true } : item));
+      setSelectedClips(new Set());
+    } else {
+      toast.error("Bulk delete failed: " + error.message);
+    }
+  };
+
+  const handleBulkCopy = () => {
+    if (selectedClips.size === 0) return;
+    const textItems = items.filter(item =>
+      selectedClips.has(item.id) && !item.locked && (item.type === "text" || item.type === "code")
+    );
+    if (textItems.length === 0) { toast.error("No copyable text items selected."); return; }
+    const combined = textItems.map(i => i.content).join("\n\n---\n\n");
+    navigator.clipboard.writeText(combined).then(() => {
+      toast.success(`Copied ${textItems.length} clip${textItems.length > 1 ? "s" : ""}!`, { icon: "📋" });
+      setSelectedClips(new Set());
+    });
+  };
+
   const filteredItems = items
     .filter((item) => {
       // Filter out deleted items unless activeTab is "trash"
@@ -1468,6 +1606,12 @@ export default function Dashboard() {
         item.title?.toLowerCase().includes(search) ||
         (item.content && !item.locked && item.content.toLowerCase().includes(search))
       );
+    })
+    .sort((a, b) => {
+      // Pinned items always float to the top
+      if (a.is_pinned && !b.is_pinned) return -1;
+      if (!a.is_pinned && b.is_pinned) return 1;
+      return 0;
     });
 
   const getIcon = (type, locked) => {
@@ -2107,260 +2251,370 @@ export default function Dashboard() {
 
           {/* List Section */}
           <section className="xl:col-span-2 space-y-4">
+            {/* Bulk Action Bar — appears when clips are selected */}
+            {selectedClips.size > 0 && (
+              <div className="sticky top-20 z-30 flex items-center justify-between gap-3 rounded-xl border border-brand-500/30 bg-dark-card/95 backdrop-blur-md px-4 py-3 shadow-xl shadow-black/40 animate-in slide-in-from-top duration-200">
+                <span className="text-sm font-semibold text-white flex items-center gap-2">
+                  <CheckSquare className="h-4 w-4 text-brand-500" />
+                  {selectedClips.size} clip{selectedClips.size > 1 ? "s" : ""} selected
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleBulkCopy}
+                    className="flex items-center gap-1.5 rounded-lg bg-white/5 border border-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10 transition-all cursor-pointer"
+                  >
+                    <Copy className="h-3.5 w-3.5" /> Copy All
+                  </button>
+                  <button
+                    onClick={handleBulkDelete}
+                    className="flex items-center gap-1.5 rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-500/20 transition-all cursor-pointer"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> Delete All
+                  </button>
+                  <button
+                    onClick={() => setSelectedClips(new Set())}
+                    className="p-1.5 rounded-lg text-gray-500 hover:text-white transition-all cursor-pointer"
+                    title="Clear selection"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+
             {loading ? (
               <div className="space-y-4">
-                {[1, 2, 3].map((val) => (
+                {[1, 2, 3, 4, 5, 6].map((val) => (
                   <div key={val} className="rounded-xl border border-white/5 bg-white/[0.01] p-5 animate-pulse space-y-3">
                     <div className="flex items-center gap-3">
-                      <div className="h-9 w-9 rounded bg-white/5"></div>
+                      <div className="h-9 w-9 rounded-lg bg-white/5 shrink-0"></div>
                       <div className="flex-1 space-y-2">
-                        <div className="h-4 w-1/4 rounded bg-white/5"></div>
-                        <div className="h-3 w-1/6 rounded bg-white/5"></div>
+                        <div className="h-4 w-1/3 rounded bg-white/5"></div>
+                        <div className="h-3 w-1/5 rounded bg-white/5"></div>
+                      </div>
+                      <div className="flex gap-1.5">
+                        <div className="h-7 w-7 rounded-lg bg-white/5"></div>
+                        <div className="h-7 w-7 rounded-lg bg-white/5"></div>
                       </div>
                     </div>
-                    <div className="h-10 w-full rounded bg-white/5"></div>
+                    <div className="h-12 w-full rounded-lg bg-white/5"></div>
+                    <div className="h-3 w-1/4 rounded bg-white/[0.03]"></div>
                   </div>
                 ))}
               </div>
             ) : filteredItems.length === 0 ? (
-              <div className="rounded-2xl border border-white/5 bg-white/[0.01] p-12 text-center">
-                <FileText className="mx-auto h-12 w-12 text-gray-600 mb-3" />
-                <h4 className="text-base font-semibold text-white">No items found</h4>
-                <p className="text-sm text-gray-500 mt-1">Add items or adjust your search filter to populate your feed.</p>
+              <div className="rounded-2xl border border-white/5 bg-white/[0.01] p-16 text-center flex flex-col items-center">
+                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/[0.03] border border-white/5 mb-5">
+                  <Clipboard className="h-8 w-8 text-gray-600" />
+                </div>
+                <h4 className="text-base font-semibold text-white mb-1">
+                  {searchQuery ? "No results found" : activeTab === "trash" ? "Trash is empty" : "No clips yet"}
+                </h4>
+                <p className="text-sm text-gray-500 max-w-xs">
+                  {searchQuery
+                    ? `No clips match "${searchQuery}". Try a different search.`
+                    : activeTab === "trash"
+                    ? "Deleted clips appear here for recovery."
+                    : "Sync your first item using the form on the left. Supports text, code, files, and images."}
+                </p>
+                {!searchQuery && activeTab !== "trash" && (
+                  <div className="mt-5 flex items-center gap-2 text-[10px] text-gray-600 font-mono">
+                    <span>Press</span>
+                    <kbd className="px-1.5 py-0.5 rounded border border-white/10 bg-white/5 font-sans text-gray-400">Alt</kbd>
+                    <span>+</span>
+                    <kbd className="px-1.5 py-0.5 rounded border border-white/10 bg-white/5 font-sans text-gray-400">N</kbd>
+                    <span>to create your first clip</span>
+                  </div>
+                )}
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-4">
-                {filteredItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className="group relative rounded-xl border border-white/5 bg-[#0b0b0e] hover:bg-[#101014] hover:border-brand-500/25 hover:shadow-[0_4px_20px_rgba(0,120,212,0.04)] p-4 sm:p-5 transition-all duration-200 transform-gpu hover:-translate-y-0.5"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/5 border border-white/10">
-                          {getIcon(item.type, item.locked)}
-                        </div>
-                        <div className="min-w-0">
-                          <h4 className="text-sm font-semibold text-white m-0 truncate max-w-[150px] xs:max-w-[200px] sm:max-w-md flex flex-wrap items-center gap-1.5 font-sans">
-                            {item.title}
-                            {item.is_encrypted && (
-                              <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
-                                <ShieldCheck className="h-3 w-3" /> E2EE
-                              </span>
-                            )}
-                            {item.isOffline && (
-                              <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
-                                Offline Queue
-                              </span>
-                            )}
-                            {item.self_destruct && (
-                              <span className="text-[9px] font-bold text-orange-400 bg-orange-500/10 border border-orange-500/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
-                                <Flame className="h-3 w-3" /> Self-Destruct
-                              </span>
-                            )}
-                          </h4>
-                          <span className="text-xs text-gray-500">
-                            {new Date(item.created_at).toLocaleString()}
-                          </span>
-                        </div>
-                      </div>
+              <div className="grid grid-cols-1 gap-3">
+                {filteredItems.flatMap((item, idx) => {
+                  const elements = [];
 
-                      {/* Action Buttons */}
-                      <div className="flex items-center gap-1.5 xl:opacity-0 xl:group-hover:opacity-100 transition-opacity">
-                        {activeTab === "trash" ? (
-                          <>
-                            {/* Restore Button */}
-                            <button
-                              onClick={() => handleRestore(item.id)}
-                              className="p-1.5 rounded-lg text-gray-400 hover:bg-white/5 hover:text-brand-500 transition-all cursor-pointer"
-                              title="Restore item"
-                            >
-                              <RotateCcw className="h-4 w-4" />
-                            </button>
-                            {/* Delete permanently */}
-                            <button
-                              onClick={() => handleDelete(item.id)}
-                              className="p-1.5 rounded-lg text-gray-400 hover:bg-red-500/10 hover:text-red-400 transition-all cursor-pointer"
-                              title="Delete permanently"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            {!item.locked && !item.isOffline && (
+                  // Date group header
+                  const dateLabel = getDateLabel(item);
+                  const prevDateLabel = idx > 0 ? getDateLabel(filteredItems[idx - 1]) : null;
+                  if (dateLabel !== prevDateLabel) {
+                    elements.push(
+                      <div key={`date-${item.id}`} className={`flex items-center gap-3 ${idx > 0 ? "pt-3" : ""}`}>
+                        <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest whitespace-nowrap">{dateLabel}</span>
+                        <div className="flex-1 h-px bg-white/5" />
+                      </div>
+                    );
+                  }
+
+                  const wc = getWordCount(item.content);
+
+                  elements.push(
+                    <div
+                      key={item.id}
+                      className={`group relative rounded-xl border p-4 sm:p-5 transition-all duration-200 transform-gpu hover:-translate-y-0.5 ${
+                        copiedId === item.id
+                          ? "border-emerald-500/50 bg-emerald-500/[0.02] shadow-[0_0_20px_rgba(52,211,153,0.08)]"
+                          : selectedClips.has(item.id)
+                          ? "border-brand-500/40 bg-brand-500/[0.03]"
+                          : item.is_pinned
+                          ? "border-amber-500/25 bg-amber-500/[0.015] hover:border-amber-500/40"
+                          : "border-white/5 bg-[#0b0b0e] hover:bg-[#101014] hover:border-brand-500/25 hover:shadow-[0_4px_20px_rgba(0,120,212,0.04)]"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex items-center gap-3 min-w-0">
+                          {/* Bulk select checkbox */}
+                          <input
+                            type="checkbox"
+                            checked={selectedClips.has(item.id)}
+                            onChange={() => toggleClipSelect(item.id)}
+                            className="h-4 w-4 shrink-0 accent-brand-600 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
+                            style={selectedClips.has(item.id) ? { opacity: 1 } : {}}
+                            title="Select clip"
+                          />
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/5 border border-white/10">
+                            {getIcon(item.type, item.locked)}
+                          </div>
+                          <div className="min-w-0">
+                            <h4 className="text-sm font-semibold text-white m-0 truncate max-w-[150px] xs:max-w-[200px] sm:max-w-md flex flex-wrap items-center gap-1.5 font-sans">
+                              {item.title}
+                              {item.is_pinned && (
+                                <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                                  <Pin className="h-2.5 w-2.5" /> Pinned
+                                </span>
+                              )}
+                              {item.is_encrypted && (
+                                <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                                  <ShieldCheck className="h-3 w-3" /> E2EE
+                                </span>
+                              )}
+                              {item.isOffline && (
+                                <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                                  Offline Queue
+                                </span>
+                              )}
+                              {item.self_destruct && (
+                                <span className="text-[9px] font-bold text-orange-400 bg-orange-500/10 border border-orange-500/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                                  <Flame className="h-3 w-3" /> Self-Destruct
+                                </span>
+                              )}
+                            </h4>
+                            <span className="text-xs text-gray-500">
+                              {new Date(item.created_at).toLocaleString()}
+                              {!item.locked && (item.type === "text" || item.type === "code") && wc.words > 0 && (
+                                <span className="ml-2 text-gray-600">· {wc.words} words · {wc.chars} chars</span>
+                              )}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex items-center gap-1.5 xl:opacity-0 xl:group-hover:opacity-100 transition-opacity shrink-0">
+                          {activeTab === "trash" ? (
+                            <>
                               <button
-                                onClick={() => {
-                                  setShareItem(item);
-                                  setGeneratedLink("");
-                                  setSharePassword("");
-                                  setShowSharePasswordText(false);
-                                  setShowShareModal(true);
-                                }}
+                                onClick={() => handleRestore(item.id)}
                                 className="p-1.5 rounded-lg text-gray-400 hover:bg-white/5 hover:text-brand-500 transition-all cursor-pointer"
-                                title="Generate shareable link"
+                                title="Restore item"
                               >
-                                <Share2 className="h-4 w-4" />
+                                <RotateCcw className="h-4 w-4" />
                               </button>
-                            )}
-                            {!item.locked && !item.isOffline && (
-                              <button
-                                onClick={() => {
-                                  setAiItem(item);
-                                  setAiResponse("");
-                                  setAiCustomPrompt("");
-                                  setShowAiModal(true);
-                                }}
-                                className="p-1.5 rounded-lg text-brand-500 hover:bg-white/5 hover:text-brand-400 transition-all cursor-pointer"
-                                title="AI Clipboard Assist"
-                              >
-                                <Sparkles className="h-4 w-4" />
-                              </button>
-                            )}
-                            {!item.locked && (item.type === "text" || item.type === "code") && (
-                              <button
-                                onClick={() => handleCopy(item)}
-                                className="p-1.5 rounded-lg text-gray-400 hover:bg-white/5 hover:text-brand-500 transition-all cursor-pointer flex items-center justify-center relative"
-                                title="Copy to Clipboard"
-                              >
-                                {copiedId === item.id ? (
-                                  <UserCheck className="h-4 w-4 text-emerald-400 animate-in zoom-in duration-200" />
-                                ) : (
-                                  <Copy className="h-4 w-4" />
-                                )}
-                              </button>
-                            )}
-                            {!item.locked && !item.isOffline && (item.type === "file" || item.type === "image") && (
-                              <a
-                                href={item.is_encrypted ? (decryptedFiles[item.id] || "#") : item.file_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="p-1.5 rounded-lg text-gray-400 hover:bg-white/5 hover:text-brand-500 transition-all flex items-center justify-center"
-                                title="Open Link"
-                              >
-                                <ExternalLink className="h-4 w-4" />
-                              </a>
-                            )}
-                            {!item.isOffline && (
                               <button
                                 onClick={() => handleDelete(item.id)}
                                 className="p-1.5 rounded-lg text-gray-400 hover:bg-red-500/10 hover:text-red-400 transition-all cursor-pointer"
-                                title="Delete cloud record"
+                                title="Delete permanently"
                               >
                                 <Trash2 className="h-4 w-4" />
                               </button>
+                            </>
+                          ) : (
+                            <>
+                              {/* Pin button */}
+                              {!item.isOffline && (
+                                <button
+                                  onClick={() => handlePin(item.id, item.is_pinned)}
+                                  className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                                    item.is_pinned
+                                      ? "text-amber-400 hover:bg-amber-500/10"
+                                      : "text-gray-400 hover:bg-white/5 hover:text-amber-400"
+                                  }`}
+                                  title={item.is_pinned ? "Unpin" : "Pin to top"}
+                                >
+                                  <Pin className="h-4 w-4" />
+                                </button>
+                              )}
+                              {/* QR Code button (text/link clips) */}
+                              {!item.locked && (item.type === "text" || item.type === "code") && (
+                                <button
+                                  onClick={() => {
+                                    setQrContent(item.content?.slice(0, 500) || item.title);
+                                    setShowQrModal(true);
+                                  }}
+                                  className="p-1.5 rounded-lg text-gray-400 hover:bg-white/5 hover:text-cyan-400 transition-all cursor-pointer"
+                                  title="Generate QR code"
+                                >
+                                  <QrCode className="h-4 w-4" />
+                                </button>
+                              )}
+                              {!item.locked && !item.isOffline && (
+                                <button
+                                  onClick={() => {
+                                    setShareItem(item);
+                                    setGeneratedLink("");
+                                    setSharePassword("");
+                                    setShowSharePasswordText(false);
+                                    setShowShareModal(true);
+                                  }}
+                                  className="p-1.5 rounded-lg text-gray-400 hover:bg-white/5 hover:text-brand-500 transition-all cursor-pointer"
+                                  title="Generate shareable link"
+                                >
+                                  <Share2 className="h-4 w-4" />
+                                </button>
+                              )}
+                              {!item.locked && !item.isOffline && (
+                                <button
+                                  onClick={() => {
+                                    setAiItem(item);
+                                    setAiResponse("");
+                                    setAiCustomPrompt("");
+                                    setShowAiModal(true);
+                                  }}
+                                  className="p-1.5 rounded-lg text-brand-500 hover:bg-white/5 hover:text-brand-400 transition-all cursor-pointer"
+                                  title="AI Clipboard Assist"
+                                >
+                                  <Sparkles className="h-4 w-4" />
+                                </button>
+                              )}
+                              {!item.locked && (item.type === "text" || item.type === "code") && (
+                                <button
+                                  onClick={() => handleCopy(item)}
+                                  className={`p-1.5 rounded-lg transition-all cursor-pointer flex items-center justify-center relative ${
+                                    copiedId === item.id
+                                      ? "text-emerald-400 bg-emerald-500/10"
+                                      : "text-gray-400 hover:bg-white/5 hover:text-brand-500"
+                                  }`}
+                                  title="Copy to Clipboard"
+                                >
+                                  {copiedId === item.id ? (
+                                    <UserCheck className="h-4 w-4 animate-in zoom-in duration-200" />
+                                  ) : (
+                                    <Copy className="h-4 w-4" />
+                                  )}
+                                </button>
+                              )}
+                              {!item.locked && !item.isOffline && (item.type === "file" || item.type === "image") && (
+                                <a
+                                  href={item.is_encrypted ? (decryptedFiles[item.id] || "#") : item.file_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-1.5 rounded-lg text-gray-400 hover:bg-white/5 hover:text-brand-500 transition-all flex items-center justify-center"
+                                  title="Open Link"
+                                >
+                                  <ExternalLink className="h-4 w-4" />
+                                </a>
+                              )}
+                              {!item.isOffline && (
+                                <button
+                                  onClick={() => handleDelete(item.id)}
+                                  className="p-1.5 rounded-lg text-gray-400 hover:bg-red-500/10 hover:text-red-400 transition-all cursor-pointer"
+                                  title="Move to Trash"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-4 text-sm text-gray-300">
+                        {item.locked ? (
+                          <div className="bg-red-500/5 border border-red-500/10 rounded-xl p-4 flex items-center gap-3 text-red-400">
+                            <Lock className="h-5 w-5 flex-shrink-0" />
+                            <div>
+                              <p className="font-semibold text-xs m-0">Item encrypted client-side</p>
+                              <p className="text-[10px] text-gray-400 m-0 mt-0.5">Please unlock E2EE by entering your passphrase in the header to access.</p>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            {item.type === "text" && (
+                              <div className="bg-black/20 p-3 rounded-lg border border-white/5 max-h-40 overflow-y-auto leading-relaxed">
+                                {renderMarkdownContent(item)}
+                              </div>
+                            )}
+
+                            {item.type === "code" && (
+                              <pre className="overflow-x-auto bg-black/35 p-4 rounded-xl border border-white/5 font-mono text-xs max-h-60">
+                                <code dangerouslySetInnerHTML={{ __html: highlightCode(item.content) }} />
+                              </pre>
+                            )}
+
+                            {item.type === "image" && (
+                              <div className="space-y-2">
+                                <div className="relative mt-2 max-w-sm rounded-lg overflow-hidden border border-white/10 group-hover:border-white/20 transition-all">
+                                  {item.is_encrypted ? (
+                                    decryptedFiles[item.id] ? (
+                                      <img src={decryptedFiles[item.id]} alt={item.title} className="w-full h-auto max-h-64 object-cover" />
+                                    ) : (
+                                      <div className="h-32 flex items-center justify-center bg-black/25 text-xs text-gray-400 animate-pulse">Decrypting image binary...</div>
+                                    )
+                                  ) : (
+                                    <img src={item.file_url} alt={item.title} className="w-full h-auto max-h-64 object-cover" />
+                                  )}
+                                </div>
+                                {item.content && item.content !== item.title && (
+                                  <div className="p-3 bg-black/35 rounded-lg border border-white/5 text-[10px] font-mono whitespace-pre-wrap max-h-24 overflow-y-auto">
+                                    <span className="text-[9px] font-bold text-cyan-400 block mb-1">🔍 EXTRACTED OCR TEXT:</span>
+                                    {item.content}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {item.type === "file" && (
+                              <div className="flex items-center justify-between bg-black/25 px-4 py-3 rounded-xl border border-white/5">
+                                <span className="font-mono text-xs truncate max-w-[120px] sm:max-w-xs">{item.content}</span>
+                                {item.is_encrypted ? (
+                                  decryptedFiles[item.id] ? (
+                                    <a href={decryptedFiles[item.id]} download={item.title} className="text-xs font-semibold text-brand-500 hover:underline flex items-center gap-1 shrink-0 ml-2">
+                                      <Download className="h-3.5 w-3.5" /> Download
+                                    </a>
+                                  ) : (
+                                    <span className="text-[10px] text-gray-500 animate-pulse shrink-0 ml-2">Decrypting...</span>
+                                  )
+                                ) : (
+                                  <a href={item.file_url} download className="text-xs font-semibold text-brand-500 hover:underline shrink-0 ml-2">Download File</a>
+                                )}
+                              </div>
+                            )}
+
+                            {previews[item.id] && (
+                              <div className="mt-3 flex gap-3 p-3 bg-black/25 rounded-xl border border-white/5">
+                                {previews[item.id].image && (
+                                  <img src={previews[item.id].image} className="w-16 h-16 object-cover rounded-lg shrink-0 border border-white/10" />
+                                )}
+                                <div className="min-w-0 flex-1">
+                                  <h5 className="font-semibold text-xs text-white truncate">{previews[item.id].title}</h5>
+                                  <p className="text-[10px] text-gray-400 mt-1 line-clamp-2">{previews[item.id].description}</p>
+                                  <a href={previews[item.id].url} target="_blank" rel="noreferrer" className="text-[9px] text-brand-500 mt-1 font-semibold flex items-center gap-0.5 hover:underline font-sans">
+                                    Go to link <ExternalLink className="h-2 w-2" />
+                                  </a>
+                                </div>
+                              </div>
                             )}
                           </>
                         )}
                       </div>
                     </div>
+                  );
 
-                    <div className="mt-4 text-sm text-gray-300">
-                      {item.locked ? (
-                        <div className="bg-red-500/5 border border-red-500/10 rounded-xl p-4 flex items-center gap-3 text-red-400">
-                          <Lock className="h-5 w-5 flex-shrink-0" />
-                          <div>
-                            <p className="font-semibold text-xs m-0">Item encrypted client-side</p>
-                            <p className="text-[10px] text-gray-400 m-0 mt-0.5">Please unlock E2EE by entering your passphrase in the header to access.</p>
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          {item.type === "text" && (
-                            <div className="bg-black/20 p-3 rounded-lg border border-white/5 max-h-40 overflow-y-auto leading-relaxed">
-                              {renderMarkdownContent(item)}
-                            </div>
-                          )}
-
-                          {item.type === "code" && (
-                            <pre className="overflow-x-auto bg-black/35 p-4 rounded-xl border border-white/5 font-mono text-xs max-h-60">
-                              <code dangerouslySetInnerHTML={{ __html: highlightCode(item.content) }} />
-                            </pre>
-                          )}
-
-                          {item.type === "image" && (
-                            <div className="space-y-2">
-                              <div className="relative mt-2 max-w-sm rounded-lg overflow-hidden border border-white/10 group-hover:border-white/20 transition-all">
-                                {item.is_encrypted ? (
-                                  decryptedFiles[item.id] ? (
-                                    <img
-                                      src={decryptedFiles[item.id]}
-                                      alt={item.title}
-                                      className="w-full h-auto max-h-64 object-cover"
-                                    />
-                                  ) : (
-                                    <div className="h-32 flex items-center justify-center bg-black/25 text-xs text-gray-400 animate-pulse">
-                                      Decrypting image binary...
-                                    </div>
-                                  )
-                                ) : (
-                                  <img
-                                    src={item.file_url}
-                                    alt={item.title}
-                                    className="w-full h-auto max-h-64 object-cover"
-                                  />
-                                )}
-                              </div>
-                              {item.content && item.content !== item.title && (
-                                <div className="p-3 bg-black/35 rounded-lg border border-white/5 text-[10px] font-mono whitespace-pre-wrap max-h-24 overflow-y-auto">
-                                  <span className="text-[9px] font-bold text-cyan-400 block mb-1">🔍 EXTRACTED OCR TEXT:</span>
-                                  {item.content}
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {item.type === "file" && (
-                            <div className="flex items-center justify-between bg-black/25 px-4 py-3 rounded-xl border border-white/5">
-                              <span className="font-mono text-xs truncate max-w-[120px] sm:max-w-xs">{item.content}</span>
-                              {item.is_encrypted ? (
-                                decryptedFiles[item.id] ? (
-                                  <a
-                                    href={decryptedFiles[item.id]}
-                                    download={item.title}
-                                    className="text-xs font-semibold text-brand-500 hover:underline flex items-center gap-1 shrink-0 ml-2"
-                                  >
-                                    <Download className="h-3.5 w-3.5" /> Download
-                                  </a>
-                                ) : (
-                                  <span className="text-[10px] text-gray-500 animate-pulse shrink-0 ml-2">Decrypting...</span>
-                                )
-                              ) : (
-                                <a
-                                  href={item.file_url}
-                                  download
-                                  className="text-xs font-semibold text-brand-500 hover:underline shrink-0 ml-2"
-                                >
-                                  Download File
-                                </a>
-                              )}
-                            </div>
-                          )}
-
-                          {previews[item.id] && (
-                            <div className="mt-3 flex gap-3 p-3 bg-black/25 rounded-xl border border-white/5">
-                              {previews[item.id].image && (
-                                <img src={previews[item.id].image} className="w-16 h-16 object-cover rounded-lg shrink-0 border border-white/10" />
-                              )}
-                              <div className="min-w-0 flex-1">
-                                <h5 className="font-semibold text-xs text-white truncate">{previews[item.id].title}</h5>
-                                <p className="text-[10px] text-gray-400 mt-1 line-clamp-2">{previews[item.id].description}</p>
-                                <a href={previews[item.id].url} target="_blank" rel="noreferrer" className="text-[9px] text-brand-500 mt-1 font-semibold flex items-center gap-0.5 hover:underline font-sans">
-                                  Go to link <ExternalLink className="h-2 w-2" />
-                                </a>
-                              </div>
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  return elements;
+                })}
               </div>
             )}
           </section>
         </div>
       </main>
+
 
       {/* Share Modal Overlay */}
       {showShareModal && shareItem && (
@@ -2750,6 +3004,57 @@ export default function Dashboard() {
                 </div>
               </div>
 
+              {/* Translate Preset */}
+              {(aiItem.type === "text" || aiItem.type === "code") && (
+                <div className="space-y-2 pt-2 border-t border-white/5">
+                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block flex items-center gap-1">
+                    <Globe className="h-3 w-3" /> Translate To:
+                  </span>
+                  <div className="flex gap-2">
+                    <select
+                      value={aiTranslateLang}
+                      onChange={(e) => setAiTranslateLang(e.target.value)}
+                      disabled={aiLoading}
+                      className="flex-1 rounded-xl border border-white/10 bg-dark-card py-2 px-3 text-xs text-white outline-none focus:border-brand-500/30"
+                    >
+                      {["Spanish","French","German","Hindi","Japanese","Chinese","Arabic","Portuguese","Italian","Korean","Russian"].map(lang => (
+                        <option key={lang} value={lang}>{lang}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => handleAiAction("translate")}
+                      disabled={aiLoading}
+                      className="rounded-xl bg-cyan-600/20 border border-cyan-500/30 hover:bg-cyan-600/30 px-4 text-xs font-semibold text-cyan-400 cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                    >
+                      Translate
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Tone Rewriter Preset */}
+              {aiItem.type === "text" && (
+                <div className="space-y-2">
+                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block">Rewrite Tone:</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {["Formal","Casual","Professional","Friendly","Concise"].map(tone => (
+                      <button
+                        key={tone}
+                        onClick={() => { setAiTone(tone); handleAiAction("rewrite_tone"); }}
+                        disabled={aiLoading}
+                        className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 ${
+                          aiTone === tone
+                            ? "bg-brand-600/20 border-brand-500/40 text-brand-400"
+                            : "bg-white/5 border-white/10 hover:bg-white/10 text-white"
+                        }`}
+                      >
+                        {tone}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-2 pt-2 border-t border-white/5">
                 <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest">Custom AI Instructions:</label>
                 <div className="flex gap-2">
@@ -2809,6 +3114,91 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* QR Code Modal */}
+      {showQrModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl border border-white/5 bg-dark-card p-6 shadow-2xl relative font-sans text-center">
+            <button
+              onClick={() => setShowQrModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white transition-all cursor-pointer"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <h3 className="text-lg font-bold text-white mb-1 flex items-center justify-center gap-2">
+              <QrCode className="h-5 w-5 text-cyan-400" /> QR Code
+            </h3>
+            <p className="text-xs text-gray-400 mb-5">Scan with any QR reader to access this content.</p>
+            <div className="flex justify-center mb-4">
+              <canvas
+                ref={el => {
+                  if (el && qrContent) {
+                    import("qrcode").then(QRCode => {
+                      QRCode.default.toCanvas(el, qrContent, {
+                        width: 220,
+                        color: { dark: "#ffffff", light: "#14151b" },
+                        margin: 2
+                      });
+                    });
+                  }
+                }}
+                className="rounded-xl"
+              />
+            </div>
+            <p className="text-[10px] text-gray-500 font-mono truncate px-2">{qrContent?.slice(0, 60)}{qrContent?.length > 60 ? "..." : ""}</p>
+            <button
+              onClick={() => setShowQrModal(false)}
+              className="mt-5 w-full rounded-xl bg-white/5 border border-white/10 py-2.5 text-sm font-semibold text-white hover:bg-white/10 transition-all cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Keyboard Shortcuts Help Modal */}
+      {showShortcutsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-white/5 bg-dark-card p-6 shadow-2xl relative font-sans">
+            <button
+              onClick={() => setShowShortcutsModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white transition-all cursor-pointer"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
+              <Keyboard className="h-5 w-5 text-brand-500" /> Keyboard Shortcuts
+            </h3>
+            <p className="text-xs text-gray-400 mb-6">Use these shortcuts to navigate Klipport faster.</p>
+            <div className="space-y-3">
+              {[
+                { keys: ["Ctrl", "K"], desc: "Focus search bar" },
+                { keys: ["Alt", "N"], desc: "Create new clip (focus form)" },
+                { keys: ["Esc"], desc: "Close modal / clear selection" },
+                { keys: ["?"], desc: "Show this shortcuts guide" },
+              ].map(({ keys, desc }) => (
+                <div key={desc} className="flex items-center justify-between py-2 border-b border-white/5">
+                  <span className="text-sm text-gray-300">{desc}</span>
+                  <div className="flex items-center gap-1">
+                    {keys.map((k, i) => (
+                      <span key={k}>
+                        <kbd className="px-2 py-1 rounded-lg border border-white/15 bg-white/5 text-xs font-mono font-bold text-gray-300">{k}</kbd>
+                        {i < keys.length - 1 && <span className="text-gray-600 mx-0.5 text-xs">+</span>}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={() => setShowShortcutsModal(false)}
+              className="mt-6 w-full rounded-xl bg-white/5 border border-white/10 py-2.5 text-sm font-semibold text-white hover:bg-white/10 transition-all cursor-pointer"
+            >
+              Got it
+            </button>
           </div>
         </div>
       )}
