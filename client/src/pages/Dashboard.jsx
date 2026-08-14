@@ -1,4 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Command as Cmdk } from "cmdk";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { toast } from "react-hot-toast";
@@ -67,7 +70,8 @@ import {
   Keyboard,
   Tag,
   Sun,
-  Moon
+  Moon,
+  MoreHorizontal
 } from "lucide-react";
 
 
@@ -248,6 +252,18 @@ export default function Dashboard() {
 
   // Keyboard Shortcuts Modal
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
+  const [cmdOpen, setCmdOpen] = useState(false);
+
+  useEffect(() => {
+    const down = (e) => {
+      if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setCmdOpen((open) => !open);
+      }
+    };
+    document.addEventListener('keydown', down);
+    return () => document.removeEventListener('keydown', down);
+  }, []);
 
   // AI Enhanced States
   const [aiTranslateLang, setAiTranslateLang] = useState("Spanish");
@@ -1780,7 +1796,7 @@ export default function Dashboard() {
             <div className="flex h-8 w-8 items-center justify-center rounded-xl" style={{ background: "var(--brand-bg)", border: "1px solid var(--brand-bd)", color: "var(--brand)" }}>
               <Clipboard className="h-4 w-4" />
             </div>
-            <span className="text-[15px] font-bold tracking-tight" style={{ color: "var(--text1)" }}>Klipport</span>
+            <span className="text-[17px] font-bold tracking-tight font-editorial" style={{ color: "var(--text1)" }}>Klipport</span>
           </div>
 
           <div style={{ width: "1px", height: "18px", background: "var(--border)" }} />
@@ -1872,7 +1888,7 @@ export default function Dashboard() {
           <div className="flex h-8 w-8 items-center justify-center rounded-xl" style={{ background: "var(--brand-bg)", border: "1px solid var(--brand-bd)", color: "var(--brand)" }}>
             <Clipboard className="h-4 w-4" />
           </div>
-          <span className="text-[15px] font-bold tracking-tight" style={{ color: "var(--text1)" }}>Klipport</span>
+          <span className="text-[17px] font-bold tracking-tight font-editorial" style={{ color: "var(--text1)" }}>Klipport</span>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={toggleTheme} className="a-icon-btn" title={isDark ? "Light mode" : "Dark mode"}>
@@ -1887,6 +1903,37 @@ export default function Dashboard() {
           </button>
         </div>
       </header>
+
+
+      {/* CMDK Global Palette */}
+      <Cmdk.Dialog open={cmdOpen} onOpenChange={setCmdOpen} cmdk-overlay="">
+        <div cmdk-dialog="">
+          <Cmdk.Input autoFocus placeholder="Type a command or search..." cmdk-input="" />
+          <Cmdk.List cmdk-list="">
+            <Cmdk.Empty cmdk-empty="">No results found.</Cmdk.Empty>
+            <Cmdk.Group heading="Quick Actions" cmdk-group-heading="">
+              <Cmdk.Item cmdk-item="" onSelect={() => { setCmdOpen(false); document.getElementById('new-item-input')?.focus(); }}>
+                <Plus /> Create New Clip
+              </Cmdk.Item>
+              <Cmdk.Item cmdk-item="" onSelect={() => { setCmdOpen(false); toggleTheme(); }}>
+                {isDark ? <Sun /> : <Moon />} Toggle Theme
+              </Cmdk.Item>
+              <Cmdk.Item cmdk-item="" onSelect={() => { setCmdOpen(false); setShowShortcutsModal(true); }}>
+                <Keyboard /> Keyboard Shortcuts
+              </Cmdk.Item>
+            </Cmdk.Group>
+            {workspaces.length > 0 && (
+              <Cmdk.Group heading="Workspaces" cmdk-group-heading="">
+                {workspaces.map(w => (
+                  <Cmdk.Item key={w.id} cmdk-item="" onSelect={() => { setActiveWorkspaceId(w.id); setCmdOpen(false); }}>
+                    <Briefcase /> Switch to {w.name}
+                  </Cmdk.Item>
+                ))}
+              </Cmdk.Group>
+            )}
+          </Cmdk.List>
+        </div>
+      </Cmdk.Dialog>
 
       {/* Mobile Drawer Overlay */}
       {mobileMenuOpen && (
@@ -2318,37 +2365,42 @@ export default function Dashboard() {
                 )}
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-3">
-                {filteredItems.flatMap((item, idx) => {
-                  const elements = [];
-
-                  // Date group header
-                  const dateLabel = getDateLabel(item);
-                  const prevDateLabel = idx > 0 ? getDateLabel(filteredItems[idx - 1]) : null;
-                  if (dateLabel !== prevDateLabel) {
-                    elements.push(
-                      <div key={`date-${item.id}`} className={`flex items-center gap-3 ${idx > 0 ? "pt-3" : ""}`}>
-                        <span className="date-label whitespace-nowrap">{dateLabel}</span>
-                        <div className="flex-1 h-px" style={{ background: "var(--border)" }} />
-                      </div>
-                    );
-                  }
-
-                  const wc = getWordCount(item.content);
-
-                  elements.push(
-                    <div
-                      key={item.id}
-                      className={`group relative p-4 sm:p-5 ${
-                        copiedId === item.id
-                          ? "a-card-copied"
-                          : selectedClips.has(item.id)
-                          ? "a-card-selected"
-                          : item.is_pinned
-                          ? "a-card-pinned"
-                          : "a-card"
-                      }`}
-                    >
+              <div className="space-y-8">
+                {Object.entries(
+                  filteredItems.reduce((acc, item) => {
+                    const dl = getDateLabel(item);
+                    if (!acc[dl]) acc[dl] = [];
+                    acc[dl].push(item);
+                    return acc;
+                  }, {})
+                ).map(([dateLabel, items]) => (
+                  <div key={dateLabel}>
+                    <div className="flex items-center gap-3 mb-4">
+                      <span className="date-label whitespace-nowrap">{dateLabel}</span>
+                      <div className="flex-1 h-px" style={{ background: "var(--border)" }} />
+                    </div>
+                    <div className="columns-1 sm:columns-2 xl:columns-3 gap-4">
+                      <AnimatePresence>
+                        {items.map(item => {
+                          const wc = getWordCount(item.content);
+                          return (
+                            <motion.div
+                              layoutId={item.id}
+                              initial={{ opacity: 0, y: 15 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, scale: 0.95 }}
+                              transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                              key={item.id}
+                              className={`group relative p-4 sm:p-5 mb-4 break-inside-avoid ${
+                                copiedId === item.id
+                                  ? "a-card-copied"
+                                  : selectedClips.has(item.id)
+                                  ? "a-card-selected"
+                                  : item.is_pinned
+                                  ? "a-card-pinned"
+                                  : "a-card"
+                              }`}
+                            >
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex items-center gap-3 min-w-0">
                           {/* Bulk select checkbox */}
@@ -2549,11 +2601,13 @@ export default function Dashboard() {
                           </>
                         )}
                       </div>
+                            </motion.div>
+                          );
+                        })}
+                      </AnimatePresence>
                     </div>
-                  );
-
-                  return elements;
-                })}
+                  </div>
+                ))}
               </div>
             )}
           </section>
