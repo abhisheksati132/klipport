@@ -2737,7 +2737,7 @@ export default function Dashboard() {
                     value={passphraseInput}
                     onChange={(e) => setPassphraseInput(e.target.value)}
                     placeholder="Enter secret passphrase"
-                    className="a-input !pl-11 !pr-10"
+                    className="a-input" style={{ paddingLeft: "2.75rem", paddingRight: "2.5rem" }}
                     required
                   />
                   <button

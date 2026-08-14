@@ -53,6 +53,16 @@
   --scrollbar: rgba(0,0,0,0.18); --overlay: rgba(0,0,0,0.35); --header-bg: rgba(255,255,255,0.82);
 }
 
+.theme-dark select option {
+  background-color: var(--surface2);
+  color: var(--text1);
+}
+
+.theme-light select option {
+  background-color: var(--surface2);
+  color: var(--text1);
+}
+
 *,*::before,*::after { box-sizing: border-box; }
 
 body {
