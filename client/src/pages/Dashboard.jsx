@@ -65,7 +65,9 @@ import {
   QrCode,
   Globe,
   Keyboard,
-  Tag
+  Tag,
+  Sun,
+  Moon
 } from "lucide-react";
 
 
@@ -220,6 +222,19 @@ export default function Dashboard() {
 
   // Rich Link Previews Map
   const [previews, setPreviews] = useState({});
+
+  // Theme toggle
+  const [isDark, setIsDark] = useState(() => {
+    const saved = localStorage.getItem("klipport_theme");
+    return saved ? saved === "dark" : true;
+  });
+  const toggleTheme = () => {
+    setIsDark(prev => {
+      const next = !prev;
+      localStorage.setItem("klipport_theme", next ? "dark" : "light");
+      return next;
+    });
+  };
 
   // Copy success indicator state
   const [copiedId, setCopiedId] = useState(null);
@@ -1734,117 +1749,86 @@ export default function Dashboard() {
   );
 
   return (
-    <div 
-      className="flex flex-col min-h-screen w-full max-w-full bg-[#070709] text-gray-200 overflow-x-hidden relative font-sans"
+    <div
+      className={`flex flex-col min-h-screen w-full max-w-full overflow-x-hidden relative font-sans ${isDark ? "theme-dark" : "theme-light"}`}
+      style={{ background: "var(--bg)", color: "var(--text1)" }}
       onDragEnter={handleDragEnter}
       onDragOver={(e) => e.preventDefault()}
-      style={{
-        backgroundImage: "radial-gradient(rgba(255,255,255,0.015) 1px, transparent 0)",
-        backgroundSize: "24px 24px"
-      }}
     >
-      {/* Subtle Premium Spotlights */}
-      <div className="fixed top-[-10%] right-[-5%] w-[400px] h-[400px] rounded-full bg-brand-500/5 blur-[120px] pointer-events-none z-0" />
-      <div className="fixed bottom-[-10%] left-[-5%] w-[400px] h-[400px] rounded-full bg-cyan-500/5 blur-[120px] pointer-events-none z-0" />
-
-      {/* Drag & Drop Full-screen Overlay */}
+      {/* Drag & Drop Overlay */}
       {isDragging && (
-        <div 
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center border-4 border-dashed border-brand-500 p-8 transition-all"
+        <div
+          className="fixed inset-0 z-50 flex flex-col items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.85)", backdropFilter: "blur(20px)", border: "2px dashed var(--brand)" }}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           onDragOver={(e) => e.preventDefault()}
         >
-          <div className="flex h-20 w-20 items-center justify-center rounded-full bg-brand-500/10 border-2 border-brand-500 text-brand-500 mb-6 animate-bounce">
-            <Clipboard className="h-10 w-10" />
+          <div className="flex h-20 w-20 items-center justify-center rounded-full mb-6 animate-bounce" style={{ background: "var(--brand-bg)", border: "2px solid var(--brand)", color: "var(--brand)" }}>
+            <Clipboard className="h-9 w-9" />
           </div>
-          <h2 className="text-3xl font-extrabold text-white tracking-tight">Drop File Anywhere to Sync!</h2>
-          <p className="text-sm text-gray-400 mt-2">Release the file to load it directly into your Klipport upload portal.</p>
+          <h2 className="text-2xl font-bold tracking-tight mb-2" style={{ color: "var(--text1)" }}>Drop to sync</h2>
+          <p className="text-sm" style={{ color: "var(--text2)" }}>Release the file to load it into Klipport.</p>
         </div>
       )}
 
-      {/* Premium Horizontal Navigation Header (Desktop viewports >= 1280px) */}
-      <header className="hidden xl:flex items-center justify-between px-8 py-4 bg-white/[0.01] border-b border-white/5 backdrop-blur-md sticky top-0 z-40">
-        <div className="flex items-center gap-6">
+      {/* Desktop Navigation Header */}
+      <header className="hidden xl:flex items-center justify-between px-7 py-3.5 sticky top-0 z-40 a-header">
+        {/* Logo + Workspace */}
+        <div className="flex items-center gap-5">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-500">
-              <Clipboard className="h-4.5 w-4.5" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl" style={{ background: "var(--brand-bg)", border: "1px solid var(--brand-bd)", color: "var(--brand)" }}>
+              <Clipboard className="h-4 w-4" />
             </div>
-            <span className="text-lg font-bold text-white tracking-tight">Klipport</span>
+            <span className="text-[15px] font-bold tracking-tight" style={{ color: "var(--text1)" }}>Klipport</span>
           </div>
 
-          <div className="relative">
-            <select
-              value={activeWorkspace ? activeWorkspace.id : ""}
-              onChange={(e) => {
-                const val = e.target.value;
-                if (val === "") {
-                  handleWorkspaceChange(null);
-                } else if (val === "__create") {
-                  setShowWorkspaceModal(true);
-                } else {
-                  const wsObj = workspaces.find((w) => w.id === val);
-                  if (wsObj) handleWorkspaceChange(wsObj);
-                }
-              }}
-              className="rounded-lg border border-white/10 bg-dark-card py-1.5 pl-3 pr-8 text-xs font-semibold text-white outline-none cursor-pointer focus:border-brand-500/30"
-            >
-              <option value="">👤 Personal Workspace</option>
-              {workspaces.map((w) => (
-                <option key={w.id} value={w.id}>🏢 {w.name}</option>
-              ))}
-              <option value="__create" className="text-brand-500 font-bold">+ Create Workspace</option>
-            </select>
-          </div>
+          <div style={{ width: "1px", height: "18px", background: "var(--border)" }} />
+
+          <select
+            value={activeWorkspace ? activeWorkspace.id : ""}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (val === "") handleWorkspaceChange(null);
+              else if (val === "__create") setShowWorkspaceModal(true);
+              else { const wsObj = workspaces.find((w) => w.id === val); if (wsObj) handleWorkspaceChange(wsObj); }
+            }}
+            className="a-select text-xs font-medium"
+            style={{ fontSize: "13px", padding: "6px 28px 6px 10px" }}
+          >
+            <option value="">Personal</option>
+            {workspaces.map((w) => (<option key={w.id} value={w.id}>{w.name}</option>))}
+            <option value="__create">+ New Workspace</option>
+          </select>
         </div>
 
-        {/* Center widgets */}
-        <div className="flex items-center gap-4">
-          {/* E2EE Lock Button */}
+        {/* Center */}
+        <div className="flex items-center gap-3">
           <button
-            onClick={() => {
-              if (encryptionKey) {
-                handleClearPassphrase();
-              } else {
-                setPassphraseInput("");
-                setShowPassphraseText(false);
-                setShowPassphraseModal(true);
-              }
-            }}
-            className={`rounded-xl border px-4 py-2 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-              encryptionKey 
-                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20" 
-                : "bg-white/5 border-white/10 text-gray-400 hover:text-white"
-            }`}
+            onClick={() => { if (encryptionKey) handleClearPassphrase(); else { setPassphraseInput(""); setShowPassphraseText(false); setShowPassphraseModal(true); } }}
+            className="a-btn2 text-xs"
+            style={encryptionKey ? { color: "var(--green)", background: "var(--green-bg)", borderColor: "var(--green-bd)" } : {}}
           >
-            <Shield className="h-4 w-4" />
-            {encryptionKey ? "E2EE Active" : "E2EE Inactive"}
+            <Shield className="h-3.5 w-3.5" />
+            {encryptionKey ? "E2EE Active" : "E2EE Off"}
           </button>
 
           <button
-            onClick={() => {
-              setGeneratedTokenVal("");
-              setShowCliTokenModal(true);
-            }}
-            className="rounded-xl bg-white/5 border border-white/10 px-4 py-2 text-xs font-semibold text-gray-300 hover:text-white transition-all cursor-pointer flex items-center gap-1.5"
+            onClick={() => { setGeneratedTokenVal(""); setShowCliTokenModal(true); }}
+            className="a-btn2 text-xs"
           >
-            <Key className="h-4 w-4" />
-            CLI Keys
+            <Key className="h-3.5 w-3.5" /> CLI Keys
           </button>
 
-          {/* Connected presence dots */}
           {presenceList.length > 0 && (
-            <div className="flex items-center gap-1 bg-white/[0.01] border border-white/5 px-3 py-1.5 rounded-xl">
-              <span className="text-[10px] font-bold text-gray-500 mr-1">Active:</span>
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs" style={{ background: "var(--fill1)", border: "1px solid var(--border)" }}>
+              <span className="font-medium" style={{ color: "var(--text3)" }}>Active:</span>
               <div className="flex -space-x-1">
                 {presenceList.slice(0, 3).map((p, idx) => (
-                  <div
-                    key={idx}
-                    className="h-5 w-5 rounded-full bg-brand-600 border border-[#070709] flex items-center justify-center text-[8px] font-bold text-white uppercase relative group cursor-help"
-                  >
+                  <div key={idx} className="relative group cursor-help h-5 w-5 rounded-full flex items-center justify-center text-[8px] font-bold text-white uppercase" style={{ background: "var(--brand)", border: "1.5px solid var(--bg)" }}>
                     {p.email ? p.email.substring(0, 2) : "TM"}
-                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block z-10 bg-dark-card border border-white/10 px-2 py-0.5 rounded text-[8px] font-bold text-white whitespace-nowrap shadow-xl">
-                      {p.email} ({p.device || "CLI Client"})
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-10 px-2 py-1 rounded-lg text-[10px] font-medium whitespace-nowrap shadow-xl" style={{ background: "var(--surface2)", border: "1px solid var(--border)", color: "var(--text1)" }}>
+                      {p.email}
                     </div>
                   </div>
                 ))}
@@ -1852,47 +1836,56 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* Real-time typing indicators */}
           {typingStatus && (
-            <div className="text-[10px] text-brand-500 font-semibold animate-pulse tracking-wide font-sans">
-              {typingStatus}
-            </div>
+            <span className="text-xs font-medium animate-pulse" style={{ color: "var(--brand)" }}>{typingStatus}</span>
           )}
         </div>
 
-        {/* Right side profile / Logout */}
-        <div className="flex items-center gap-4">
+        {/* Right */}
+        <div className="flex items-center gap-2">
           {user && (
-            <div className="flex items-center gap-2 max-w-[150px]">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 border border-white/10 text-gray-400 shrink-0">
-                <User className="h-4 w-4" />
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-full" style={{ background: "var(--fill2)", color: "var(--text2)" }}>
+                <User className="h-3.5 w-3.5" />
               </div>
-              <span className="text-xs font-medium text-white truncate">{user.user_metadata?.full_name || "User"}</span>
+              <span className="text-[13px] font-medium truncate max-w-[120px]" style={{ color: "var(--text1)" }}>{user.user_metadata?.full_name || user.email?.split("@")[0]}</span>
             </div>
           )}
-          <button
-            onClick={handleLogout}
-            className="p-2 rounded-lg text-red-400 hover:bg-red-500/10 transition-all cursor-pointer flex items-center gap-1.5 text-xs font-semibold"
-          >
-            <LogOut className="h-4 w-4" /> Logout
+
+          {/* Theme Toggle */}
+          <button onClick={toggleTheme} className="a-icon-btn" title={isDark ? "Switch to Light" : "Switch to Dark"}>
+            {isDark
+              ? <Sun className="h-4 w-4 theme-icon-pop" />
+              : <Moon className="h-4 w-4 theme-icon-pop" />}
+          </button>
+
+          <button onClick={handleLogout} className="a-icon-btn" style={{ color: "var(--red)" }} title="Sign out">
+            <LogOut className="h-4 w-4" />
           </button>
         </div>
       </header>
 
-      {/* Mobile Top Navigation Header */}
-      <header className="xl:hidden flex items-center justify-between p-4 bg-white/[0.01] border-b border-white/5 z-40 sticky top-0 backdrop-blur-md">
+
+      {/* Mobile Header */}
+      <header className="xl:hidden flex items-center justify-between px-4 py-3 sticky top-0 z-40 a-header">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-500">
+          <div className="flex h-8 w-8 items-center justify-center rounded-xl" style={{ background: "var(--brand-bg)", border: "1px solid var(--brand-bd)", color: "var(--brand)" }}>
             <Clipboard className="h-4 w-4" />
           </div>
-          <span className="text-lg font-bold text-white tracking-tight">Klipport</span>
+          <span className="text-[15px] font-bold tracking-tight" style={{ color: "var(--text1)" }}>Klipport</span>
         </div>
-        <button
-          onClick={() => setMobileMenuOpen(true)}
-          className="p-1.5 rounded-lg border border-white/10 bg-white/[0.02] text-gray-300 hover:text-white"
-        >
-          <Menu className="h-5 w-5" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={toggleTheme} className="a-icon-btn" title={isDark ? "Light mode" : "Dark mode"}>
+            {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </button>
+          <button
+            onClick={() => setMobileMenuOpen(true)}
+            className="a-icon-btn"
+            style={{ border: "1px solid var(--border)", padding: "7px", borderRadius: "9px" }}
+          >
+            <Menu className="h-4.5 w-4.5" />
+          </button>
+        </div>
       </header>
 
       {/* Mobile Drawer Overlay */}
@@ -1945,16 +1938,12 @@ export default function Dashboard() {
 
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
             {/* Horizontal Filter Navigation pills */}
-            <div className="flex items-center gap-1 bg-white/[0.03] border border-white/5 p-1 rounded-xl">
+            <div className="a-tabs">
               {["all", "text", "code", "files", "trash"].map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`rounded-lg px-3 py-1.5 text-[10px] sm:text-xs font-semibold uppercase tracking-wider transition-all cursor-pointer ${
-                    activeTab === tab 
-                      ? "bg-brand-600 text-white shadow-md" 
-                      : "text-gray-400 hover:text-white"
-                  }`}
+                  className={`a-tab ${activeTab === tab ? "active" : ""}`}
                 >
                   {tab === "all" ? "All" : tab === "files" ? "Files" : tab}
                 </button>
@@ -1962,13 +1951,14 @@ export default function Dashboard() {
             </div>
 
             <div className="relative w-full md:w-64">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: "var(--text3)" }} />
               <input
                 type="text"
                 placeholder="Search history..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full rounded-xl border border-white/10 bg-white/[0.02] py-2 pl-10 pr-4 text-sm text-white placeholder-gray-500 outline-none transition-all focus:border-brand-500/40 focus:bg-white/[0.04]"
+                className="a-input"
+                style={{ paddingLeft: "36px" }}
               />
             </div>
           </div>
@@ -1976,20 +1966,17 @@ export default function Dashboard() {
 
         {/* Dynamic Category Hashtags Bar */}
         {getAllHashtags().length > 0 && (
-          <div className="flex items-center gap-2 mb-6 overflow-x-auto pb-2 border-b border-white/5 scrollbar-thin">
-            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-0.5 shrink-0">
-              <Hash className="h-3.5 w-3.5 text-brand-500" /> Tag Categories:
+          <div className="flex items-center gap-2 mb-6 overflow-x-auto pb-3 scrollbar-thin" style={{ borderBottom: "1px solid var(--border)" }}>
+            <span className="date-label flex items-center gap-0.5 shrink-0" style={{ color: "var(--text3)" }}>
+              <Hash className="h-3.5 w-3.5" style={{ color: "var(--brand)" }} /> Tag Categories:
             </span>
             <div className="flex items-center gap-1.5">
               {getAllHashtags().map((tag) => (
                 <button
                   key={tag}
                   onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}
-                  className={`text-[10px] font-semibold px-2.5 py-1 rounded-full transition-all cursor-pointer shrink-0 ${
-                    selectedTag === tag 
-                      ? "bg-brand-600 text-white border border-brand-500" 
-                      : "bg-white/5 border border-white/5 text-gray-400 hover:text-white hover:bg-white/10"
-                  }`}
+                  className={`a-tag cursor-pointer ${selectedTag === tag ? "a-tag-blue" : ""}`}
+                  style={selectedTag !== tag ? { color: "var(--text2)", border: "1px solid var(--border)" } : {}}
                 >
                   {tag}
                 </button>
@@ -2001,12 +1988,12 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 sm:gap-8">
           {/* Form and Visual Map widgets */}
           <section className="xl:col-span-1 space-y-6">
-            <div className="rounded-2xl border border-white/5 bg-white/[0.01] p-5 sm:p-6 backdrop-blur-xl">
-              <h3 className="text-base sm:text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                <Plus className="h-5 w-5 text-brand-500" /> Sync New Item
+            <div className="a-panel p-5 sm:p-6">
+              <h3 className="text-[17px] font-semibold mb-4 flex items-center gap-2" style={{ color: "var(--text1)", letterSpacing: "-0.01em" }}>
+                <Plus className="h-5 w-5" style={{ color: "var(--brand)" }} /> Sync New Item
               </h3>
 
-              <div className="grid grid-cols-4 gap-1 p-1 rounded-xl bg-white/[0.03] border border-white/5 mb-6">
+              <div className="a-tabs w-full mb-6 flex">
                 {["text", "code", "file", "image"].map((type) => (
                   <button
                     key={type}
@@ -2015,9 +2002,8 @@ export default function Dashboard() {
                       setItemType(type);
                       setFile(null);
                     }}
-                    className={`rounded-lg py-1.5 text-[10px] sm:text-xs font-semibold uppercase tracking-wider transition-all cursor-pointer ${
-                      itemType === type ? "bg-brand-600 text-white shadow-md" : "text-gray-400 hover:text-white"
-                    }`}
+                    className={`a-tab flex-1 text-center ${itemType === type ? "active" : ""}`}
+                    style={{ textTransform: "capitalize" }}
                   >
                     {type}
                   </button>
@@ -2026,27 +2012,28 @@ export default function Dashboard() {
 
               <form onSubmit={handleAddItem} className="space-y-4">
                 {encryptionKey && (
-                  <div className="flex items-center justify-between p-3 rounded-xl border border-brand-500/20 bg-brand-500/5">
-                    <span className="text-xs font-semibold text-white flex items-center gap-1.5">
-                      <ShieldCheck className="h-4 w-4 text-brand-500" /> Encrypt client-side (E2EE)
+                  <div className="flex items-center justify-between p-3 rounded-xl" style={{ background: "var(--green-bg)", border: "1px solid var(--green-bd)" }}>
+                    <span className="text-[13px] font-medium flex items-center gap-1.5" style={{ color: "var(--green)" }}>
+                      <ShieldCheck className="h-4 w-4" /> Encrypt client-side (E2EE)
                     </span>
                     <input
                       type="checkbox"
                       checked={useE2EE}
                       onChange={(e) => setUseE2EE(e.target.checked)}
-                      className="accent-brand-600 cursor-pointer h-4 w-4"
+                      className="cursor-pointer h-4 w-4"
+                      style={{ accentColor: "var(--green)" }}
                     />
                   </div>
                 )}
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1.5">Custom Title (Optional)</label>
+                  <label className="block text-[13px] font-medium mb-1.5" style={{ color: "var(--text2)" }}>Custom Title (Optional)</label>
                   <input
                     type="text"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     placeholder="Provide a name..."
-                    className="w-full rounded-xl border border-white/10 bg-white/[0.02] py-2.5 px-4 text-sm text-white placeholder-gray-600 outline-none transition-all focus:border-brand-500/30"
+                    className="a-input"
                   />
                 </div>
 
@@ -2075,7 +2062,7 @@ export default function Dashboard() {
                       }}
                       placeholder="Paste text here..."
                       rows="5"
-                      className="w-full rounded-xl border border-white/10 bg-white/[0.02] py-3 px-4 text-sm text-white placeholder-gray-600 outline-none transition-all focus:border-brand-500/30 font-sans resize-y"
+                      className="a-textarea"
                     ></textarea>
                   </div>
                 )}
@@ -2083,11 +2070,11 @@ export default function Dashboard() {
                 {itemType === "code" && (
                   <div className="space-y-3">
                     <div>
-                      <label className="block text-xs font-medium text-gray-400 mb-1.5">Language</label>
+                      <label className="block text-[13px] font-medium mb-1.5" style={{ color: "var(--text2)" }}>Language</label>
                       <select
                         value={codeLanguage}
                         onChange={(e) => setCodeLanguage(e.target.value)}
-                        className="w-full rounded-xl border border-white/10 bg-dark-card py-2.5 px-3 text-sm text-white outline-none focus:border-brand-500/30"
+                        className="a-select w-full"
                       >
                         <option value="javascript">JavaScript</option>
                         <option value="typescript">TypeScript</option>
@@ -2124,7 +2111,7 @@ export default function Dashboard() {
                         }}
                         placeholder="Paste code here..."
                         rows="6"
-                        className="w-full rounded-xl border border-white/10 bg-white/[0.01] py-3 px-4 text-sm text-white placeholder-gray-600 outline-none transition-all focus:border-brand-500/30 font-mono resize-y"
+                        className="a-textarea font-mono"
                       ></textarea>
                     </div>
                   </div>
@@ -2132,21 +2119,21 @@ export default function Dashboard() {
 
                 {(itemType === "file" || itemType === "image") && (
                   <div>
-                    <label className="block text-xs font-medium text-gray-400 mb-1.5">
+                    <label className="block text-[13px] font-medium mb-1.5" style={{ color: "var(--text2)" }}>
                       Select {itemType === "image" ? "Image" : "File"}
                     </label>
-                    <div className="flex flex-col items-center justify-center border border-dashed border-white/10 rounded-xl bg-white/[0.01] p-6 hover:bg-white/[0.02] transition-all relative overflow-hidden">
+                    <div className="flex flex-col items-center justify-center rounded-xl p-6 transition-all relative overflow-hidden" style={{ border: "1.5px dashed var(--border2)", background: "var(--fill1)" }}>
                       <input
                         type="file"
                         onChange={(e) => setFile(e.target.files[0])}
                         accept={itemType === "image" ? "image/*" : "*"}
                         className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                       />
-                      <Plus className="h-8 w-8 text-gray-500 mb-2" />
-                      <p className="text-sm font-semibold text-gray-300 truncate max-w-[200px]">
+                      <Plus className="h-8 w-8 mb-2" style={{ color: "var(--text3)" }} />
+                      <p className="text-sm font-semibold truncate max-w-[200px]" style={{ color: "var(--text1)" }}>
                         {file ? file.name : "Click to select a file"}
                       </p>
-                      <p className="text-xs text-gray-500 mt-1">
+                      <p className="text-xs mt-1" style={{ color: "var(--text3)" }}>
                         {file ? `${(file.size / 1024 / 1024).toFixed(2)} MB` : "Up to 50MB"}
                       </p>
                     </div>
@@ -2155,11 +2142,11 @@ export default function Dashboard() {
 
                 <div className="grid grid-cols-2 gap-3 pt-2">
                   <div>
-                    <label className="block text-[10px] font-semibold text-gray-400 mb-1 uppercase tracking-wider">Expires In</label>
+                    <label className="block text-[11px] font-semibold mb-1 uppercase tracking-wider" style={{ color: "var(--text3)" }}>Expires In</label>
                     <select
                       value={expiresInSeconds}
                       onChange={(e) => setExpiresInSeconds(e.target.value)}
-                      className="w-full rounded-xl border border-white/10 bg-dark-card py-2 px-2 text-xs text-white outline-none focus:border-brand-500/30"
+                      className="a-select w-full"
                     >
                       <option value="0">Never</option>
                       <option value="600">10 Minutes</option>
@@ -2169,14 +2156,15 @@ export default function Dashboard() {
                   </div>
 
                   <div className="flex flex-col justify-end pb-2">
-                    <label className="flex items-center gap-1.5 text-xs text-gray-400 font-semibold cursor-pointer select-none">
+                    <label className="flex items-center gap-1.5 text-xs font-semibold cursor-pointer select-none" style={{ color: "var(--text2)" }}>
                       <input
                         type="checkbox"
                         checked={selfDestruct}
                         onChange={(e) => setSelfDestruct(e.target.checked)}
-                        className="accent-brand-600 h-3.5 w-3.5"
+                        className="h-3.5 w-3.5 cursor-pointer"
+                        style={{ accentColor: "var(--brand)" }}
                       />
-                      <Flame className={`h-4 w-4 ${selfDestruct ? "text-orange-500" : "text-gray-500"}`} /> Self-Destruct
+                      <Flame className={`h-4 w-4 ${selfDestruct ? "" : ""}`} style={selfDestruct ? { color: "var(--amber)" } : { color: "var(--text3)" }} /> Self-Destruct
                     </label>
                   </div>
                 </div>
@@ -2184,7 +2172,7 @@ export default function Dashboard() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="w-full rounded-xl bg-brand-600 py-3.5 text-sm font-semibold text-white transition-all hover:bg-brand-500 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+                  className="a-btn w-full py-3"
                 >
                   {submitting ? (
                     <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
@@ -2198,35 +2186,36 @@ export default function Dashboard() {
 
 
             {/* Storage Quota utilization tracker */}
-            <div className="rounded-2xl border border-white/5 bg-white/[0.01] p-5 sm:p-6 mt-6 font-sans">
-              <h4 className="text-xs font-extrabold text-white uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <HardDrive className="h-4 w-4 text-brand-500" /> Storage Utilization
+            <div className="a-panel p-5 sm:p-6 mt-6">
+              <h4 className="text-xs font-extrabold uppercase tracking-wider mb-3 flex items-center gap-1.5" style={{ color: "var(--text1)" }}>
+                <HardDrive className="h-4 w-4" style={{ color: "var(--brand)" }} /> Storage Utilization
               </h4>
               <div className="space-y-2">
-                <div className="flex justify-between text-[10px] font-semibold text-gray-400">
+                <div className="flex justify-between text-[11px] font-semibold" style={{ color: "var(--text2)" }}>
                   <span>{(rawItems.reduce((acc, curr) => acc + (curr.file_size || 0), 0) / 1024 / 1024).toFixed(2)} MB used</span>
                   <span>50.00 MB Limit</span>
                 </div>
-                <div className="w-full h-2 rounded-full bg-white/5 overflow-hidden">
+                <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: "var(--fill2)" }}>
                   <div 
-                    className="h-full bg-brand-600 rounded-full transition-all duration-500"
+                    className="h-full rounded-full transition-all duration-500"
                     style={{ 
+                      background: "var(--brand)",
                       width: `${Math.min((rawItems.reduce((acc, curr) => acc + (curr.file_size || 0), 0) / (50 * 1024 * 1024)) * 100, 100)}%` 
                     }}
                   ></div>
                 </div>
-                <span className="text-[9px] text-gray-500 block text-right font-semibold">
+                <span className="text-[10px] block text-right font-semibold" style={{ color: "var(--text3)" }}>
                   {((rawItems.reduce((acc, curr) => acc + (curr.file_size || 0), 0) / (50 * 1024 * 1024)) * 100).toFixed(1)}% full
                 </span>
               </div>
             </div>
 
             {/* Sync Activity contribution calendar */}
-            <div className="rounded-2xl border border-white/5 bg-white/[0.01] p-5 sm:p-6 mt-6">
-              <h4 className="text-xs font-extrabold text-white uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <Clock className="h-4 w-4 text-brand-500" /> Sync Activity (30 Days)
+            <div className="a-panel p-5 sm:p-6 mt-6">
+              <h4 className="text-xs font-extrabold uppercase tracking-wider mb-3 flex items-center gap-1.5" style={{ color: "var(--text1)" }}>
+                <Clock className="h-4 w-4" style={{ color: "var(--brand)" }} /> Sync Activity (30 Days)
               </h4>
-              <div className="grid grid-cols-10 gap-1.5 bg-black/10 p-3 rounded-xl border border-white/5">
+              <div className="grid grid-cols-10 gap-1.5 p-3 rounded-xl" style={{ background: "var(--fill1)", border: "1px solid var(--border)" }}>
                 {getContributionGrid().map((day, idx) => (
                   <div
                     key={idx}
@@ -2253,27 +2242,28 @@ export default function Dashboard() {
           <section className="xl:col-span-2 space-y-4">
             {/* Bulk Action Bar — appears when clips are selected */}
             {selectedClips.size > 0 && (
-              <div className="sticky top-20 z-30 flex items-center justify-between gap-3 rounded-xl border border-brand-500/30 bg-dark-card/95 backdrop-blur-md px-4 py-3 shadow-xl shadow-black/40 animate-in slide-in-from-top duration-200">
-                <span className="text-sm font-semibold text-white flex items-center gap-2">
-                  <CheckSquare className="h-4 w-4 text-brand-500" />
+              <div className="sticky top-20 z-30 flex items-center justify-between gap-3 rounded-[14px] border px-4 py-3 shadow-xl bulk-bar" style={{ background: "var(--header-bg)", borderColor: "var(--brand-bd)", backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)" }}>
+                <span className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--text1)" }}>
+                  <CheckSquare className="h-4 w-4" style={{ color: "var(--brand)" }} />
                   {selectedClips.size} clip{selectedClips.size > 1 ? "s" : ""} selected
                 </span>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={handleBulkCopy}
-                    className="flex items-center gap-1.5 rounded-lg bg-white/5 border border-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10 transition-all cursor-pointer"
+                    className="a-btn2"
                   >
                     <Copy className="h-3.5 w-3.5" /> Copy All
                   </button>
                   <button
                     onClick={handleBulkDelete}
-                    className="flex items-center gap-1.5 rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-500/20 transition-all cursor-pointer"
+                    className="a-btn2"
+                    style={{ color: "var(--red)", background: "var(--red-bg)", borderColor: "var(--red-bd)" }}
                   >
                     <Trash2 className="h-3.5 w-3.5" /> Delete All
                   </button>
                   <button
                     onClick={() => setSelectedClips(new Set())}
-                    className="p-1.5 rounded-lg text-gray-500 hover:text-white transition-all cursor-pointer"
+                    className="a-icon-btn"
                     title="Clear selection"
                   >
                     <X className="h-4 w-4" />
@@ -2285,32 +2275,31 @@ export default function Dashboard() {
             {loading ? (
               <div className="space-y-4">
                 {[1, 2, 3, 4, 5, 6].map((val) => (
-                  <div key={val} className="rounded-xl border border-white/5 bg-white/[0.01] p-5 animate-pulse space-y-3">
+                  <div key={val} className="a-card p-5 space-y-3 skeleton" style={{ background: "transparent" }}>
                     <div className="flex items-center gap-3">
-                      <div className="h-9 w-9 rounded-lg bg-white/5 shrink-0"></div>
+                      <div className="h-9 w-9 rounded-lg shrink-0" style={{ background: "var(--fill2)" }}></div>
                       <div className="flex-1 space-y-2">
-                        <div className="h-4 w-1/3 rounded bg-white/5"></div>
-                        <div className="h-3 w-1/5 rounded bg-white/5"></div>
+                        <div className="h-4 w-1/3 rounded" style={{ background: "var(--fill2)" }}></div>
+                        <div className="h-3 w-1/5 rounded" style={{ background: "var(--fill2)" }}></div>
                       </div>
                       <div className="flex gap-1.5">
-                        <div className="h-7 w-7 rounded-lg bg-white/5"></div>
-                        <div className="h-7 w-7 rounded-lg bg-white/5"></div>
+                        <div className="h-7 w-7 rounded-lg" style={{ background: "var(--fill2)" }}></div>
+                        <div className="h-7 w-7 rounded-lg" style={{ background: "var(--fill2)" }}></div>
                       </div>
                     </div>
-                    <div className="h-12 w-full rounded-lg bg-white/5"></div>
-                    <div className="h-3 w-1/4 rounded bg-white/[0.03]"></div>
+                    <div className="h-12 w-full rounded-lg" style={{ background: "var(--fill2)" }}></div>
                   </div>
                 ))}
               </div>
             ) : filteredItems.length === 0 ? (
-              <div className="rounded-2xl border border-white/5 bg-white/[0.01] p-16 text-center flex flex-col items-center">
-                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/[0.03] border border-white/5 mb-5">
-                  <Clipboard className="h-8 w-8 text-gray-600" />
+              <div className="a-panel p-16 text-center flex flex-col items-center">
+                <div className="flex h-16 w-16 items-center justify-center rounded-[18px] mb-5" style={{ background: "var(--fill1)", border: "1px solid var(--border)", color: "var(--text2)" }}>
+                  <Clipboard className="h-8 w-8" />
                 </div>
-                <h4 className="text-base font-semibold text-white mb-1">
+                <h4 className="text-[17px] font-semibold mb-1" style={{ color: "var(--text1)", letterSpacing: "-0.01em" }}>
                   {searchQuery ? "No results found" : activeTab === "trash" ? "Trash is empty" : "No clips yet"}
                 </h4>
-                <p className="text-sm text-gray-500 max-w-xs">
+                <p className="text-sm max-w-xs" style={{ color: "var(--text2)" }}>
                   {searchQuery
                     ? `No clips match "${searchQuery}". Try a different search.`
                     : activeTab === "trash"
@@ -2318,11 +2307,11 @@ export default function Dashboard() {
                     : "Sync your first item using the form on the left. Supports text, code, files, and images."}
                 </p>
                 {!searchQuery && activeTab !== "trash" && (
-                  <div className="mt-5 flex items-center gap-2 text-[10px] text-gray-600 font-mono">
+                  <div className="mt-5 flex items-center gap-2 text-[11px] font-medium" style={{ color: "var(--text3)" }}>
                     <span>Press</span>
-                    <kbd className="px-1.5 py-0.5 rounded border border-white/10 bg-white/5 font-sans text-gray-400">Alt</kbd>
+                    <kbd className="px-1.5 py-0.5 rounded" style={{ border: "1px solid var(--border)", background: "var(--fill1)", color: "var(--text2)" }}>Alt</kbd>
                     <span>+</span>
-                    <kbd className="px-1.5 py-0.5 rounded border border-white/10 bg-white/5 font-sans text-gray-400">N</kbd>
+                    <kbd className="px-1.5 py-0.5 rounded" style={{ border: "1px solid var(--border)", background: "var(--fill1)", color: "var(--text2)" }}>N</kbd>
                     <span>to create your first clip</span>
                   </div>
                 )}
@@ -2338,8 +2327,8 @@ export default function Dashboard() {
                   if (dateLabel !== prevDateLabel) {
                     elements.push(
                       <div key={`date-${item.id}`} className={`flex items-center gap-3 ${idx > 0 ? "pt-3" : ""}`}>
-                        <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest whitespace-nowrap">{dateLabel}</span>
-                        <div className="flex-1 h-px bg-white/5" />
+                        <span className="date-label whitespace-nowrap">{dateLabel}</span>
+                        <div className="flex-1 h-px" style={{ background: "var(--border)" }} />
                       </div>
                     );
                   }
@@ -2349,14 +2338,14 @@ export default function Dashboard() {
                   elements.push(
                     <div
                       key={item.id}
-                      className={`group relative rounded-xl border p-4 sm:p-5 transition-all duration-200 transform-gpu hover:-translate-y-0.5 ${
+                      className={`group relative p-4 sm:p-5 ${
                         copiedId === item.id
-                          ? "border-emerald-500/50 bg-emerald-500/[0.02] shadow-[0_0_20px_rgba(52,211,153,0.08)]"
+                          ? "a-card-copied"
                           : selectedClips.has(item.id)
-                          ? "border-brand-500/40 bg-brand-500/[0.03]"
+                          ? "a-card-selected"
                           : item.is_pinned
-                          ? "border-amber-500/25 bg-amber-500/[0.015] hover:border-amber-500/40"
-                          : "border-white/5 bg-[#0b0b0e] hover:bg-[#101014] hover:border-brand-500/25 hover:shadow-[0_4px_20px_rgba(0,120,212,0.04)]"
+                          ? "a-card-pinned"
+                          : "a-card"
                       }`}
                     >
                       <div className="flex items-start justify-between gap-4">
@@ -2370,37 +2359,29 @@ export default function Dashboard() {
                             style={selectedClips.has(item.id) ? { opacity: 1 } : {}}
                             title="Select clip"
                           />
-                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/5 border border-white/10">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px]" style={{ background: "var(--fill1)", border: "1px solid var(--border)", color: "var(--text2)" }}>
                             {getIcon(item.type, item.locked)}
                           </div>
-                          <div className="min-w-0">
-                            <h4 className="text-sm font-semibold text-white m-0 truncate max-w-[150px] xs:max-w-[200px] sm:max-w-md flex flex-wrap items-center gap-1.5 font-sans">
+                          <div className="min-w-0 flex flex-col justify-center">
+                            <h4 className="text-[14px] font-semibold m-0 truncate max-w-[150px] xs:max-w-[200px] sm:max-w-md flex flex-wrap items-center gap-1.5" style={{ color: "var(--text1)", letterSpacing: "-0.01em" }}>
                               {item.title}
                               {item.is_pinned && (
-                                <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
-                                  <Pin className="h-2.5 w-2.5" /> Pinned
-                                </span>
+                                <span className="a-tag a-tag-amber"><Pin className="h-2.5 w-2.5" /> Pinned</span>
                               )}
                               {item.is_encrypted && (
-                                <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
-                                  <ShieldCheck className="h-3 w-3" /> E2EE
-                                </span>
+                                <span className="a-tag a-tag-green"><ShieldCheck className="h-3 w-3" /> E2EE</span>
                               )}
                               {item.isOffline && (
-                                <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
-                                  Offline Queue
-                                </span>
+                                <span className="a-tag a-tag-amber">Offline Queue</span>
                               )}
                               {item.self_destruct && (
-                                <span className="text-[9px] font-bold text-orange-400 bg-orange-500/10 border border-orange-500/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
-                                  <Flame className="h-3 w-3" /> Self-Destruct
-                                </span>
+                                <span className="a-tag a-tag-red"><Flame className="h-3 w-3" /> Self-Destruct</span>
                               )}
                             </h4>
-                            <span className="text-xs text-gray-500">
+                            <span className="text-xs" style={{ color: "var(--text3)" }}>
                               {new Date(item.created_at).toLocaleString()}
                               {!item.locked && (item.type === "text" || item.type === "code") && wc.words > 0 && (
-                                <span className="ml-2 text-gray-600">· {wc.words} words · {wc.chars} chars</span>
+                                <span className="ml-2 font-medium" style={{ color: "var(--text2)" }}>· {wc.words} words · {wc.chars} chars</span>
                               )}
                             </span>
                           </div>
@@ -2410,45 +2391,29 @@ export default function Dashboard() {
                         <div className="flex items-center gap-1.5 xl:opacity-0 xl:group-hover:opacity-100 transition-opacity shrink-0">
                           {activeTab === "trash" ? (
                             <>
-                              <button
-                                onClick={() => handleRestore(item.id)}
-                                className="p-1.5 rounded-lg text-gray-400 hover:bg-white/5 hover:text-brand-500 transition-all cursor-pointer"
-                                title="Restore item"
-                              >
+                              <button onClick={() => handleRestore(item.id)} className="a-icon-btn" title="Restore item">
                                 <RotateCcw className="h-4 w-4" />
                               </button>
-                              <button
-                                onClick={() => handleDelete(item.id)}
-                                className="p-1.5 rounded-lg text-gray-400 hover:bg-red-500/10 hover:text-red-400 transition-all cursor-pointer"
-                                title="Delete permanently"
-                              >
+                              <button onClick={() => handleDelete(item.id)} className="a-icon-btn" style={{ color: "var(--red)" }} title="Delete permanently">
                                 <Trash2 className="h-4 w-4" />
                               </button>
                             </>
                           ) : (
                             <>
-                              {/* Pin button */}
                               {!item.isOffline && (
                                 <button
                                   onClick={() => handlePin(item.id, item.is_pinned)}
-                                  className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                                    item.is_pinned
-                                      ? "text-amber-400 hover:bg-amber-500/10"
-                                      : "text-gray-400 hover:bg-white/5 hover:text-amber-400"
-                                  }`}
+                                  className="a-icon-btn"
+                                  style={item.is_pinned ? { color: "var(--amber)", background: "var(--fill2)" } : {}}
                                   title={item.is_pinned ? "Unpin" : "Pin to top"}
                                 >
                                   <Pin className="h-4 w-4" />
                                 </button>
                               )}
-                              {/* QR Code button (text/link clips) */}
                               {!item.locked && (item.type === "text" || item.type === "code") && (
                                 <button
-                                  onClick={() => {
-                                    setQrContent(item.content?.slice(0, 500) || item.title);
-                                    setShowQrModal(true);
-                                  }}
-                                  className="p-1.5 rounded-lg text-gray-400 hover:bg-white/5 hover:text-cyan-400 transition-all cursor-pointer"
+                                  onClick={() => { setQrContent(item.content?.slice(0, 500) || item.title); setShowQrModal(true); }}
+                                  className="a-icon-btn"
                                   title="Generate QR code"
                                 >
                                   <QrCode className="h-4 w-4" />
@@ -2456,14 +2421,8 @@ export default function Dashboard() {
                               )}
                               {!item.locked && !item.isOffline && (
                                 <button
-                                  onClick={() => {
-                                    setShareItem(item);
-                                    setGeneratedLink("");
-                                    setSharePassword("");
-                                    setShowSharePasswordText(false);
-                                    setShowShareModal(true);
-                                  }}
-                                  className="p-1.5 rounded-lg text-gray-400 hover:bg-white/5 hover:text-brand-500 transition-all cursor-pointer"
+                                  onClick={() => { setShareItem(item); setGeneratedLink(""); setSharePassword(""); setShowSharePasswordText(false); setShowShareModal(true); }}
+                                  className="a-icon-btn"
                                   title="Generate shareable link"
                                 >
                                   <Share2 className="h-4 w-4" />
@@ -2471,13 +2430,9 @@ export default function Dashboard() {
                               )}
                               {!item.locked && !item.isOffline && (
                                 <button
-                                  onClick={() => {
-                                    setAiItem(item);
-                                    setAiResponse("");
-                                    setAiCustomPrompt("");
-                                    setShowAiModal(true);
-                                  }}
-                                  className="p-1.5 rounded-lg text-brand-500 hover:bg-white/5 hover:text-brand-400 transition-all cursor-pointer"
+                                  onClick={() => { setAiItem(item); setAiResponse(""); setAiCustomPrompt(""); setShowAiModal(true); }}
+                                  className="a-icon-btn"
+                                  style={{ color: "var(--brand)" }}
                                   title="AI Clipboard Assist"
                                 >
                                   <Sparkles className="h-4 w-4" />
@@ -2486,18 +2441,11 @@ export default function Dashboard() {
                               {!item.locked && (item.type === "text" || item.type === "code") && (
                                 <button
                                   onClick={() => handleCopy(item)}
-                                  className={`p-1.5 rounded-lg transition-all cursor-pointer flex items-center justify-center relative ${
-                                    copiedId === item.id
-                                      ? "text-emerald-400 bg-emerald-500/10"
-                                      : "text-gray-400 hover:bg-white/5 hover:text-brand-500"
-                                  }`}
+                                  className="a-icon-btn relative"
+                                  style={copiedId === item.id ? { color: "var(--green)", background: "var(--fill2)" } : {}}
                                   title="Copy to Clipboard"
                                 >
-                                  {copiedId === item.id ? (
-                                    <UserCheck className="h-4 w-4 animate-in zoom-in duration-200" />
-                                  ) : (
-                                    <Copy className="h-4 w-4" />
-                                  )}
+                                  {copiedId === item.id ? <UserCheck className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                                 </button>
                               )}
                               {!item.locked && !item.isOffline && (item.type === "file" || item.type === "image") && (
@@ -2505,18 +2453,14 @@ export default function Dashboard() {
                                   href={item.is_encrypted ? (decryptedFiles[item.id] || "#") : item.file_url}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="p-1.5 rounded-lg text-gray-400 hover:bg-white/5 hover:text-brand-500 transition-all flex items-center justify-center"
+                                  className="a-icon-btn flex items-center justify-center"
                                   title="Open Link"
                                 >
                                   <ExternalLink className="h-4 w-4" />
                                 </a>
                               )}
                               {!item.isOffline && (
-                                <button
-                                  onClick={() => handleDelete(item.id)}
-                                  className="p-1.5 rounded-lg text-gray-400 hover:bg-red-500/10 hover:text-red-400 transition-all cursor-pointer"
-                                  title="Move to Trash"
-                                >
+                                <button onClick={() => handleDelete(item.id)} className="a-icon-btn" title="Move to Trash">
                                   <Trash2 className="h-4 w-4" />
                                 </button>
                               )}
@@ -2525,45 +2469,45 @@ export default function Dashboard() {
                         </div>
                       </div>
 
-                      <div className="mt-4 text-sm text-gray-300">
+                      <div className="mt-4 text-sm" style={{ color: "var(--text2)" }}>
                         {item.locked ? (
-                          <div className="bg-red-500/5 border border-red-500/10 rounded-xl p-4 flex items-center gap-3 text-red-400">
+                          <div className="rounded-[12px] p-4 flex items-center gap-3" style={{ background: "var(--red-bg)", border: "1px solid var(--red-bd)", color: "var(--red)" }}>
                             <Lock className="h-5 w-5 flex-shrink-0" />
                             <div>
-                              <p className="font-semibold text-xs m-0">Item encrypted client-side</p>
-                              <p className="text-[10px] text-gray-400 m-0 mt-0.5">Please unlock E2EE by entering your passphrase in the header to access.</p>
+                              <p className="font-semibold text-[13px] m-0">Item encrypted client-side</p>
+                              <p className="text-[11px] m-0 mt-0.5" style={{ color: "var(--red)" }}>Unlock E2EE by entering your passphrase in the header to access.</p>
                             </div>
                           </div>
                         ) : (
                           <>
                             {item.type === "text" && (
-                              <div className="bg-black/20 p-3 rounded-lg border border-white/5 max-h-40 overflow-y-auto leading-relaxed">
+                              <div className="p-3 rounded-xl max-h-40 overflow-y-auto leading-relaxed" style={{ background: "var(--fill1)", border: "1px solid var(--border)", fontSize: "13px" }}>
                                 {renderMarkdownContent(item)}
                               </div>
                             )}
 
                             {item.type === "code" && (
-                              <pre className="overflow-x-auto bg-black/35 p-4 rounded-xl border border-white/5 font-mono text-xs max-h-60">
+                              <pre className="overflow-x-auto p-4 rounded-xl font-mono text-[11px] max-h-60" style={{ background: "var(--surface3)", border: "1px solid var(--border)", color: "var(--text1)" }}>
                                 <code dangerouslySetInnerHTML={{ __html: highlightCode(item.content) }} />
                               </pre>
                             )}
 
                             {item.type === "image" && (
                               <div className="space-y-2">
-                                <div className="relative mt-2 max-w-sm rounded-lg overflow-hidden border border-white/10 group-hover:border-white/20 transition-all">
+                                <div className="relative mt-2 max-w-sm rounded-xl overflow-hidden transition-all" style={{ border: "1px solid var(--border)" }}>
                                   {item.is_encrypted ? (
                                     decryptedFiles[item.id] ? (
                                       <img src={decryptedFiles[item.id]} alt={item.title} className="w-full h-auto max-h-64 object-cover" />
                                     ) : (
-                                      <div className="h-32 flex items-center justify-center bg-black/25 text-xs text-gray-400 animate-pulse">Decrypting image binary...</div>
+                                      <div className="h-32 flex items-center justify-center text-xs animate-pulse" style={{ background: "var(--fill2)", color: "var(--text3)" }}>Decrypting image binary...</div>
                                     )
                                   ) : (
                                     <img src={item.file_url} alt={item.title} className="w-full h-auto max-h-64 object-cover" />
                                   )}
                                 </div>
                                 {item.content && item.content !== item.title && (
-                                  <div className="p-3 bg-black/35 rounded-lg border border-white/5 text-[10px] font-mono whitespace-pre-wrap max-h-24 overflow-y-auto">
-                                    <span className="text-[9px] font-bold text-cyan-400 block mb-1">🔍 EXTRACTED OCR TEXT:</span>
+                                  <div className="p-3 rounded-xl text-[10px] font-mono whitespace-pre-wrap max-h-24 overflow-y-auto" style={{ background: "var(--fill1)", border: "1px solid var(--border)" }}>
+                                    <span className="text-[9px] font-bold block mb-1" style={{ color: "var(--cyan)" }}>🔍 EXTRACTED OCR TEXT:</span>
                                     {item.content}
                                   </div>
                                 )}
@@ -2571,32 +2515,32 @@ export default function Dashboard() {
                             )}
 
                             {item.type === "file" && (
-                              <div className="flex items-center justify-between bg-black/25 px-4 py-3 rounded-xl border border-white/5">
+                              <div className="flex items-center justify-between px-4 py-3 rounded-xl" style={{ background: "var(--fill1)", border: "1px solid var(--border)" }}>
                                 <span className="font-mono text-xs truncate max-w-[120px] sm:max-w-xs">{item.content}</span>
                                 {item.is_encrypted ? (
                                   decryptedFiles[item.id] ? (
-                                    <a href={decryptedFiles[item.id]} download={item.title} className="text-xs font-semibold text-brand-500 hover:underline flex items-center gap-1 shrink-0 ml-2">
+                                    <a href={decryptedFiles[item.id]} download={item.title} className="text-xs font-semibold hover:underline flex items-center gap-1 shrink-0 ml-2" style={{ color: "var(--brand)" }}>
                                       <Download className="h-3.5 w-3.5" /> Download
                                     </a>
                                   ) : (
-                                    <span className="text-[10px] text-gray-500 animate-pulse shrink-0 ml-2">Decrypting...</span>
+                                    <span className="text-[10px] animate-pulse shrink-0 ml-2" style={{ color: "var(--text3)" }}>Decrypting...</span>
                                   )
                                 ) : (
-                                  <a href={item.file_url} download className="text-xs font-semibold text-brand-500 hover:underline shrink-0 ml-2">Download File</a>
+                                  <a href={item.file_url} download className="text-xs font-semibold hover:underline shrink-0 ml-2" style={{ color: "var(--brand)" }}>Download File</a>
                                 )}
                               </div>
                             )}
 
                             {previews[item.id] && (
-                              <div className="mt-3 flex gap-3 p-3 bg-black/25 rounded-xl border border-white/5">
+                              <div className="mt-3 flex gap-3 p-3 rounded-xl" style={{ background: "var(--fill1)", border: "1px solid var(--border)" }}>
                                 {previews[item.id].image && (
-                                  <img src={previews[item.id].image} className="w-16 h-16 object-cover rounded-lg shrink-0 border border-white/10" />
+                                  <img src={previews[item.id].image} className="w-16 h-16 object-cover rounded-lg shrink-0" style={{ border: "1px solid var(--border)" }} />
                                 )}
                                 <div className="min-w-0 flex-1">
-                                  <h5 className="font-semibold text-xs text-white truncate">{previews[item.id].title}</h5>
-                                  <p className="text-[10px] text-gray-400 mt-1 line-clamp-2">{previews[item.id].description}</p>
-                                  <a href={previews[item.id].url} target="_blank" rel="noreferrer" className="text-[9px] text-brand-500 mt-1 font-semibold flex items-center gap-0.5 hover:underline font-sans">
-                                    Go to link <ExternalLink className="h-2 w-2" />
+                                  <h5 className="font-semibold text-[13px] truncate" style={{ color: "var(--text1)" }}>{previews[item.id].title}</h5>
+                                  <p className="text-[11px] mt-0.5 line-clamp-2" style={{ color: "var(--text3)" }}>{previews[item.id].description}</p>
+                                  <a href={previews[item.id].url} target="_blank" rel="noreferrer" className="text-[10px] mt-1.5 font-semibold flex items-center gap-0.5 hover:underline font-sans" style={{ color: "var(--brand)" }}>
+                                    Go to link <ExternalLink className="h-2.5 w-2.5" />
                                   </a>
                                 </div>
                               </div>
@@ -2618,8 +2562,8 @@ export default function Dashboard() {
 
       {/* Share Modal Overlay */}
       {showShareModal && shareItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-white/5 bg-dark-card p-6 shadow-2xl relative">
+        <div className="a-modal-overlay">
+          <div className="a-modal-panel w-full max-w-md">
             <button
               onClick={() => setShowShareModal(false)}
               className="absolute top-4 right-4 text-gray-400 hover:text-white transition-all cursor-pointer"
@@ -2673,11 +2617,7 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={generatingLink}
-                  className="w-full rounded-xl bg-brand-600 py-3 text-sm font-semibold text-white transition-all hover:bg-brand-500 flex items-center justify-center gap-2 cursor-pointer"
-                >
+                <button type="submit" className="a-btn w-full py-3">
                   {generatingLink ? (
                     <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
                   ) : (
@@ -2704,7 +2644,7 @@ export default function Dashboard() {
                 </div>
                 <button
                   onClick={() => setShowShareModal(false)}
-                  className="w-full rounded-xl bg-white/5 border border-white/10 py-3 text-sm font-semibold text-white transition-all hover:bg-white/10 cursor-pointer"
+                  className="a-btn a-btn-ghost w-full py-3"
                 >
                   Done
                 </button>
@@ -2716,8 +2656,8 @@ export default function Dashboard() {
 
       {/* Set Passphrase Modal */}
       {showPassphraseModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-white/5 bg-dark-card p-6 shadow-2xl relative font-sans">
+        <div className="a-modal-overlay">
+          <div className="a-modal-panel w-full max-w-md">
             <button
               onClick={() => setShowPassphraseModal(false)}
               className="absolute top-4 right-4 text-gray-400 hover:text-white transition-all cursor-pointer"
@@ -2742,7 +2682,7 @@ export default function Dashboard() {
                     value={passphraseInput}
                     onChange={(e) => setPassphraseInput(e.target.value)}
                     placeholder="Enter secret passphrase"
-                    className="w-full rounded-xl border border-white/10 bg-white/[0.02] py-2.5 pl-11 pr-10 text-sm text-white placeholder-gray-500 outline-none transition-all focus:border-brand-500/30"
+                    className="a-input pl-11 pr-10"
                     required
                   />
                   <button
@@ -2754,10 +2694,7 @@ export default function Dashboard() {
                   </button>
                 </div>
               </div>
-              <button
-                type="submit"
-                className="w-full rounded-xl bg-brand-600 py-3 text-sm font-semibold text-white transition-all hover:bg-brand-500 flex items-center justify-center gap-2 cursor-pointer"
-              >
+              <button type="submit" className="a-btn w-full py-3">
                 Activate E2EE Keys
               </button>
             </form>
@@ -2767,8 +2704,8 @@ export default function Dashboard() {
 
       {/* CLI Tokens Management Modal */}
       {showCliTokenModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl border border-white/5 bg-dark-card p-6 shadow-2xl relative font-sans">
+        <div className="a-modal-overlay">
+          <div className="a-modal-panel w-full max-w-lg">
             <button
               onClick={() => setShowCliTokenModal(false)}
               className="absolute top-4 right-4 text-gray-400 hover:text-white transition-all cursor-pointer"
@@ -2854,8 +2791,8 @@ export default function Dashboard() {
 
       {/* Create Workspace Modal */}
       {showWorkspaceModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-white/5 bg-dark-card p-6 shadow-2xl relative font-sans">
+        <div className="a-modal-overlay">
+          <div className="a-modal-panel w-full max-w-md">
             <button
               onClick={() => setShowWorkspaceModal(false)}
               className="absolute top-4 right-4 text-gray-400 hover:text-white transition-all cursor-pointer"
@@ -2878,16 +2815,12 @@ export default function Dashboard() {
                   value={newWorkspaceName}
                   onChange={(e) => setNewWorkspaceName(e.target.value)}
                   placeholder="e.g. Design Team, Project Alpha"
-                  className="w-full rounded-xl border border-white/10 bg-white/[0.02] py-2.5 px-4 text-sm text-white placeholder-gray-500 outline-none transition-all focus:border-brand-500/30"
+                  className="a-input"
                   required
                 />
               </div>
 
-              <button
-                type="submit"
-                disabled={workspaceSubmitting}
-                className="w-full rounded-xl bg-brand-600 py-3 text-sm font-semibold text-white transition-all hover:bg-brand-500 flex items-center justify-center gap-2 cursor-pointer"
-              >
+              <button type="submit" className="a-btn w-full py-3">
                 {workspaceSubmitting ? "Creating..." : "Create Workspace"}
               </button>
             </form>
@@ -2897,8 +2830,8 @@ export default function Dashboard() {
 
       {/* Invite Member Modal */}
       {showInviteModal && activeWorkspace && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-white/5 bg-dark-card p-6 shadow-2xl relative font-sans">
+        <div className="a-modal-overlay">
+          <div className="a-modal-panel w-full max-w-md">
             <button
               onClick={() => setShowInviteModal(false)}
               className="absolute top-4 right-4 text-gray-400 hover:text-white transition-all cursor-pointer"
@@ -2921,16 +2854,12 @@ export default function Dashboard() {
                   value={inviteEmail}
                   onChange={(e) => setInviteEmail(e.target.value)}
                   placeholder="name@email.com"
-                  className="w-full rounded-xl border border-white/10 bg-white/[0.02] py-2.5 px-4 text-sm text-white placeholder-gray-500 outline-none transition-all focus:border-brand-500/30"
+                  className="a-input"
                   required
                 />
               </div>
 
-              <button
-                type="submit"
-                disabled={workspaceSubmitting}
-                className="w-full rounded-xl bg-brand-600 py-3 text-sm font-semibold text-white transition-all hover:bg-brand-500 flex items-center justify-center gap-2 cursor-pointer"
-              >
+              <button type="submit" className="a-btn w-full py-3">
                 {workspaceSubmitting ? "Inviting..." : `Add to ${activeWorkspace.name}`}
               </button>
             </form>
@@ -2940,8 +2869,8 @@ export default function Dashboard() {
 
       {/* AI Assistant Modal */}
       {showAiModal && aiItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm font-sans">
-          <div className="w-full max-w-lg rounded-2xl border border-white/5 bg-dark-card p-6 shadow-2xl relative">
+        <div className="a-modal-overlay">
+          <div className="a-modal-panel w-full max-w-lg">
             <button
               onClick={() => setShowAiModal(false)}
               className="absolute top-4 right-4 text-gray-400 hover:text-white transition-all cursor-pointer"
@@ -3120,8 +3049,8 @@ export default function Dashboard() {
 
       {/* QR Code Modal */}
       {showQrModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-2xl border border-white/5 bg-dark-card p-6 shadow-2xl relative font-sans text-center">
+        <div className="a-modal-overlay">
+          <div className="a-modal-panel w-full max-w-sm">
             <button
               onClick={() => setShowQrModal(false)}
               className="absolute top-4 right-4 text-gray-400 hover:text-white transition-all cursor-pointer"
@@ -3151,7 +3080,7 @@ export default function Dashboard() {
             <p className="text-[10px] text-gray-500 font-mono truncate px-2">{qrContent?.slice(0, 60)}{qrContent?.length > 60 ? "..." : ""}</p>
             <button
               onClick={() => setShowQrModal(false)}
-              className="mt-5 w-full rounded-xl bg-white/5 border border-white/10 py-2.5 text-sm font-semibold text-white hover:bg-white/10 transition-all cursor-pointer"
+              className="a-btn a-btn-ghost w-full py-3 mt-5"
             >
               Close
             </button>
@@ -3161,8 +3090,8 @@ export default function Dashboard() {
 
       {/* Keyboard Shortcuts Help Modal */}
       {showShortcutsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-white/5 bg-dark-card p-6 shadow-2xl relative font-sans">
+        <div className="a-modal-overlay">
+          <div className="a-modal-panel w-full max-w-md">
             <button
               onClick={() => setShowShortcutsModal(false)}
               className="absolute top-4 right-4 text-gray-400 hover:text-white transition-all cursor-pointer"
@@ -3195,7 +3124,7 @@ export default function Dashboard() {
             </div>
             <button
               onClick={() => setShowShortcutsModal(false)}
-              className="mt-6 w-full rounded-xl bg-white/5 border border-white/10 py-2.5 text-sm font-semibold text-white hover:bg-white/10 transition-all cursor-pointer"
+              className="a-btn a-btn-ghost w-full py-3 mt-6"
             >
               Got it
             </button>
