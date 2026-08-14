@@ -2546,9 +2546,9 @@ export default function Dashboard() {
                             )}
 
                             {item.type === "image" && (
-                              <div className="flex gap-3 mt-2">
-                                {/* Square thumbnail – compact fixed size */}
-                                <div className="relative shrink-0 w-28 h-28 rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+                              <div className="flex gap-3 mt-2 items-start">
+                                {/* Square thumbnail */}
+                                <div className="relative shrink-0 rounded-xl overflow-hidden" style={{ width: "130px", height: "130px", border: "1px solid var(--border)", minWidth: "130px" }}>
                                   {item.is_encrypted ? (
                                     decryptedFiles[item.id] ? (
                                       <img src={decryptedFiles[item.id]} alt={item.title} className="w-full h-full object-cover" />
@@ -2559,11 +2559,11 @@ export default function Dashboard() {
                                     <img src={item.file_url} alt={item.title} className="w-full h-full object-cover" />
                                   )}
                                 </div>
-                                {/* Details – use all remaining space, no truncation */}
-                                <div className="flex-1 min-w-0 flex flex-col gap-2">
-                                  <p className="text-[13px] font-semibold break-all leading-snug" style={{ color: "var(--text1)" }}>{item.title}</p>
+                                {/* Details panel – flex-1 fills remaining width */}
+                                <div className="flex-1 flex flex-col gap-2" style={{ minWidth: 0 }}>
+                                  <p className="text-[13px] font-semibold" style={{ color: "var(--text1)", wordBreak: "break-word", overflowWrap: "anywhere" }}>{item.title}</p>
                                   {item.content && item.content !== item.title && (
-                                    <div className="p-3 rounded-xl text-[12px] font-mono whitespace-pre-wrap overflow-y-auto" style={{ background: "var(--fill1)", border: "1px solid var(--border)", color: "var(--text2)", lineHeight: "1.6" }}>
+                                    <div className="p-3 rounded-xl text-[12px] font-mono overflow-y-auto" style={{ background: "var(--fill1)", border: "1px solid var(--border)", color: "var(--text2)", lineHeight: "1.6", whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: "200px" }}>
                                       <span className="text-[10px] font-bold block mb-1.5" style={{ color: "var(--cyan)", letterSpacing: "0.05em" }}>🔍 OCR TEXT</span>
                                       {item.content}
                                     </div>
