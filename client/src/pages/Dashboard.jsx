@@ -2942,7 +2942,7 @@ export default function Dashboard() {
               <Sparkles className="h-5 w-5 text-brand-500 animate-pulse" /> AI Clipboard Copilot
             </h3>
             <p className="text-xs mb-6" style={{ color: "var(--text2)" }}>
-              Transform, analyze, and sync your clipboard content using Gemini.
+              Transform, analyze, and sync your clipboard content using Grok AI.
             </p>
 
             <div className="space-y-4">
