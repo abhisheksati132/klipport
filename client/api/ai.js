@@ -17,10 +17,10 @@ export default async function handler(req, res) {
   }
 
   const { action, content, customPrompt } = req.body;
-  const apiKey = process.env.XAI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
-    return res.status(500).json({ error: "Grok API Key (XAI_API_KEY) is not configured in Vercel environment variables." });
+    return res.status(500).json({ error: "GEMINI_API_KEY is not set in Vercel environment variables." });
   }
 
   if (!content) {
@@ -28,45 +28,68 @@ export default async function handler(req, res) {
   }
 
   if (typeof content !== "string" || content.length > 10000) {
-    return res.status(400).json({ error: "Content exceeds maximum length limit of 10,000 characters." });
+    return res.status(400).json({ error: "Content exceeds maximum length of 10,000 characters." });
   }
 
   const systemPrompt = getPromptForAction(action, customPrompt);
 
-  try {
-    const response = await fetch("https://api.x.ai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: "grok-3-mini",
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt
-          },
-          {
-            role: "user",
-            content: content
-          }
-        ],
-        temperature: 0.7
-      })
-    });
+  // Try models in order until one works
+  const models = [
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-8b",
+    "gemini-1.5-pro",
+    "gemini-pro"
+  ];
 
-    const data = await response.json();
+  let lastError = null;
 
-    if (!response.ok) {
-      return res.status(response.status).json({ error: data.error?.message || "Grok API Error" });
+  for (const model of models) {
+    try {
+      // Use stable v1 endpoint
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  { text: `${systemPrompt}\n\nContent:\n${content}` }
+                ]
+              }
+            ],
+            generationConfig: {
+              temperature: 0.7,
+              maxOutputTokens: 2048
+            }
+          })
+        }
+      );
+
+      const data = await response.json();
+
+      if (response.ok) {
+        const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "No response from AI.";
+        return res.status(200).json({ result: reply, model });
+      }
+
+      // If model not found, try next
+      lastError = data.error?.message || `Model ${model} failed`;
+      if (response.status === 404 || (data.error?.message || "").includes("not found")) {
+        continue;
+      }
+
+      // For other errors (auth, rate limit), stop immediately
+      return res.status(response.status).json({ error: data.error?.message || "AI API Error" });
+
+    } catch (err) {
+      lastError = err.message;
+      continue;
     }
-
-    const reply = data.choices?.[0]?.message?.content || "No response from AI.";
-    return res.status(200).json({ result: reply });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
   }
+
+  return res.status(500).json({ error: `No available AI model found. Last error: ${lastError}` });
 }
 
 function getPromptForAction(action, customPrompt) {
