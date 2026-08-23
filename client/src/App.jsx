@@ -4,14 +4,35 @@ import { Toaster } from "react-hot-toast";
 import ErrorBoundary from "./components/ErrorBoundary";
 import ProtectedRoute from "./components/ProtectedRoute";
 
-// Lazy-loaded routes for optimal code splitting & bundle reduction
-const Landing = lazy(() => import("./pages/Landing"));
-const Login = lazy(() => import("./pages/Login"));
-const Register = lazy(() => import("./pages/Register"));
-const Dashboard = lazy(() => import("./pages/Dashboard"));
-const QuickShare = lazy(() => import("./pages/QuickShare"));
-const ShareViewer = lazy(() => import("./pages/ShareViewer"));
-const NotFound = lazy(() => import("./pages/NotFound"));
+// Safe lazy loader that recovers automatically when new builds deploy
+function lazyWithRetry(factory) {
+  return lazy(async () => {
+    const hasReloaded = JSON.parse(
+      window.sessionStorage.getItem('chunk_reloaded') || 'false'
+    );
+    try {
+      const component = await factory();
+      window.sessionStorage.setItem('chunk_reloaded', 'false');
+      return component;
+    } catch (error) {
+      if (!hasReloaded) {
+        window.sessionStorage.setItem('chunk_reloaded', 'true');
+        window.location.reload();
+        return { default: () => null };
+      }
+      throw error;
+    }
+  });
+}
+
+// Lazy-loaded routes with auto-retry
+const Landing = lazyWithRetry(() => import("./pages/Landing"));
+const Login = lazyWithRetry(() => import("./pages/Login"));
+const Register = lazyWithRetry(() => import("./pages/Register"));
+const Dashboard = lazyWithRetry(() => import("./pages/Dashboard"));
+const QuickShare = lazyWithRetry(() => import("./pages/QuickShare"));
+const ShareViewer = lazyWithRetry(() => import("./pages/ShareViewer"));
+const NotFound = lazyWithRetry(() => import("./pages/NotFound"));
 
 function PageLoader() {
   return (
