@@ -227,17 +227,21 @@ export default function Dashboard() {
   // Rich Link Previews Map
   const [previews, setPreviews] = useState({});
 
-  // Theme toggle
+  // Theme toggle with system preference fallback and data-theme sync
   const [isDark, setIsDark] = useState(() => {
     const saved = localStorage.getItem("klipport_theme");
-    return saved ? saved === "dark" : true;
+    if (saved) return saved === "dark";
+    return typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
   });
+
+  useEffect(() => {
+    const theme = isDark ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("klipport_theme", theme);
+  }, [isDark]);
+
   const toggleTheme = () => {
-    setIsDark(prev => {
-      const next = !prev;
-      localStorage.setItem("klipport_theme", next ? "dark" : "light");
-      return next;
-    });
+    setIsDark(prev => !prev);
   };
 
   // Copy success indicator state
@@ -1796,7 +1800,7 @@ export default function Dashboard() {
             <div className="flex h-8 w-8 items-center justify-center rounded-xl" style={{ background: "var(--brand-bg)", border: "1px solid var(--brand-bd)", color: "var(--brand)" }}>
               <Clipboard className="h-4 w-4" />
             </div>
-            <span className="text-[17px] font-bold tracking-tight font-editorial" style={{ color: "var(--text1)" }}>Klipport</span>
+            <span className="text-[17px] font-bold tracking-tight font-sans" style={{ color: "var(--text1)" }}>Klipport</span>
           </div>
 
           <div style={{ width: "1px", height: "18px", background: "var(--border)" }} />
@@ -1888,7 +1892,7 @@ export default function Dashboard() {
           <div className="flex h-8 w-8 items-center justify-center rounded-xl" style={{ background: "var(--brand-bg)", border: "1px solid var(--brand-bd)", color: "var(--brand)" }}>
             <Clipboard className="h-4 w-4" />
           </div>
-          <span className="text-[17px] font-bold tracking-tight font-editorial" style={{ color: "var(--text1)" }}>Klipport</span>
+          <span className="text-[17px] font-bold tracking-tight font-sans" style={{ color: "var(--text1)" }}>Klipport</span>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={toggleTheme} className="a-icon-btn" title={isDark ? "Light mode" : "Dark mode"}>
