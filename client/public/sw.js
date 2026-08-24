@@ -3,7 +3,10 @@ const PRECACHE_ASSETS = [
   "/",
   "/index.html",
   "/logo.svg",
-  "/manifest.json"
+  "/manifest.json",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/icon-maskable-512.png"
 ];
 
 // Install Event - Precache critical assets

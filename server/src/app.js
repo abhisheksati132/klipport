@@ -27,8 +27,7 @@ const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX = 30;
 const rateLimitBuckets = new Map();
 
-function rateLimit(req, res, next) {
-  const key = req.ip || req.socket.remoteAddress || "unknown";
+function checkRateLimit(key) {
   const now = Date.now();
   let bucket = rateLimitBuckets.get(key);
   if (!bucket || now > bucket.resetAt) {
@@ -36,13 +35,18 @@ function rateLimit(req, res, next) {
     rateLimitBuckets.set(key, bucket);
   }
   bucket.count++;
-  if (bucket.count > RATE_LIMIT_MAX) {
-    return res.status(429).json({ error: "Too many requests. Please slow down." });
-  }
   if (rateLimitBuckets.size > 10000) {
     for (const [k, b] of rateLimitBuckets) {
       if (now > b.resetAt) rateLimitBuckets.delete(k);
     }
+  }
+  return { allowed: bucket.count <= RATE_LIMIT_MAX };
+}
+
+function rateLimit(req, res, next) {
+  const key = req.ip || req.socket.remoteAddress || "unknown";
+  if (!checkRateLimit(key).allowed) {
+    return res.status(429).json({ error: "Too many requests. Please slow down." });
   }
   next();
 }
@@ -300,3 +304,6 @@ app.use("/api", (req, res) => {
 
 module.exports = app;
 module.exports.isPrivateHost = isPrivateHost;
+module.exports.checkRateLimit = checkRateLimit;
+module.exports.previewCacheGet = previewCacheGet;
+module.exports.previewCacheSet = previewCacheSet;
