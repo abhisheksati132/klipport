@@ -1,5 +1,17 @@
 // Cryptographic utilities using the native Web Crypto API
 
+// Legacy global salt — kept only for decrypting clips created before per-user salts existed
+const LEGACY_KDF_SALT = "klipport-e2ee-custom-key-salt-987123";
+
+export function generateKdfSalt() {
+  const bytes = window.crypto.getRandomValues(new Uint8Array(16));
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
 // Safe base64 encoder — avoids stack overflow from .apply(null, largeArray)
 function uint8ToBase64(bytes) {
   let binary = "";
@@ -10,13 +22,12 @@ function uint8ToBase64(bytes) {
   return btoa(binary);
 }
 
-// Derive a 256-bit AES-GCM key from a passphrase
-export async function deriveKey(passphrase) {
+// Derive a 256-bit AES-GCM key from a passphrase.
+// Pass the user's stored kdf_salt; omitting it uses the legacy global salt.
+export async function deriveKey(passphrase, saltOverride = null) {
   const encoder = new TextEncoder();
   const passphraseBytes = encoder.encode(passphrase);
-  
-  // Use a static salt to ensure the derived key remains identical for the same passphrase
-  const saltBytes = encoder.encode("klipport-e2ee-custom-key-salt-987123");
+  const saltBytes = encoder.encode(saltOverride || LEGACY_KDF_SALT);
 
   const baseKey = await window.crypto.subtle.importKey(
     "raw",
@@ -86,7 +97,7 @@ export async function decryptText(base64Ciphertext, key) {
     return decoder.decode(decrypted);
   } catch (err) {
     console.error("Decryption failed:", err);
-    throw new Error("Decryption failed. Please check your passphrase.");
+    throw new Error("Decryption failed. Please check your passphrase.", { cause: err });
   }
 }
 
@@ -123,7 +134,7 @@ export async function decryptFile(encryptedBuffer, key) {
     return decrypted;
   } catch (err) {
     console.error("File decryption failed:", err);
-    throw new Error("File decryption failed. Invalid passphrase.");
+    throw new Error("File decryption failed. Invalid passphrase.", { cause: err });
   }
 }
 

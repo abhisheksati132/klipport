@@ -151,9 +151,9 @@ export default function Landing() {
             <div className="flex h-9 w-9 items-center justify-center rounded-lg mb-3.5" style={{ background: "var(--success-bg)", color: "var(--success)" }}>
               <Lock className="h-4 w-4" />
             </div>
-            <h4 className="text-sm font-semibold mb-1.5" style={{ color: "var(--text-primary)" }}>Zero-Knowledge E2EE</h4>
+            <h4 className="text-sm font-semibold mb-1.5" style={{ color: "var(--text-primary)" }}>Client-Side E2EE</h4>
             <p className="text-xs leading-relaxed m-0" style={{ color: "var(--text-secondary)" }}>
-              Encrypt text, code, and files in-browser using PBKDF2 and AES-GCM before upload. No one else can read your data.
+              Optionally encrypt text, code, and files in your browser with PBKDF2 and AES-GCM before upload — encrypted clips stay unreadable to the server.
             </p>
           </div>
 

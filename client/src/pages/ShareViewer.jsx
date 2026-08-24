@@ -41,18 +41,21 @@ export default function ShareViewer() {
       });
 
       if (rpcError) {
-        const msg = rpcError.message;
-        if (msg.includes("Invalid password")) {
+        const code = rpcError.code || "";
+        const msg = rpcError.message || "";
+        if (code === "KLIP401" || msg.includes("Invalid password")) {
           setPasswordRequired(true);
           if (passwordVal !== null) {
             toast.error("Incorrect password. Please try again.");
           }
-        } else if (msg.includes("Link has expired")) {
+        } else if (code === "KLIP410" || msg.includes("Link has expired")) {
           setError("This shared link has expired.");
-        } else if (msg.includes("Link not found")) {
+        } else if (code === "KLIP404" || msg.includes("Link not found")) {
           setError("This shared link does not exist or has been deleted.");
+        } else if (code === "KLIP410G" || msg.includes("no longer available")) {
+          setError("This clip is no longer available.");
         } else {
-          setError(rpcError.message || "Failed to load shared item.");
+          setError(msg || "Failed to load shared item.");
         }
       } else if (data && data.length > 0) {
         setItem(data[0]);

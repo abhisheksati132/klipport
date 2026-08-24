@@ -1,12 +1,10 @@
 import { useEffect, useState, useRef } from "react";
-import { useSearchParams, useNavigate, Link } from "react-router-dom";
+import { useSearchParams, Link } from "react-router-dom";
 import { io } from "socket.io-client";
-import { supabase } from "../lib/supabase";
 import { toast } from "react-hot-toast";
 import {
   Clipboard,
   ArrowLeft,
-  QrCode,
   UserCheck,
   Send,
   Plus,
@@ -21,13 +19,12 @@ import {
 
 export default function QuickShare() {
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
   
   // App states: "select", "pairing", "active"
   const [step, setStep] = useState("select");
   const [code, setCode] = useState("");
   const [joinCodeInput, setJoinCodeInput] = useState("");
-  const [peerConnected, setPeerConnected] = useState(false);
+  const [, setPeerConnected] = useState(false);
   const [sharedItems, setSharedItems] = useState([]);
   
   // Socket & Connection State

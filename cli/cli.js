@@ -74,7 +74,16 @@ async function handleLogin() {
     }
   } else {
     const email = await question("Email: ");
-    const password = await question("Password: ");
+    let muted = false;
+    const originalWriteToOutput = rl._writeToOutput.bind(rl);
+    rl._writeToOutput = (stringToWrite) => {
+      if (!muted) originalWriteToOutput(stringToWrite);
+    };
+    rl.output.write("Password: ");
+    muted = true;
+    const password = await question("");
+    muted = false;
+    console.log();
     rl.close();
 
     try {

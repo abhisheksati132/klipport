@@ -63,9 +63,27 @@ create policy "Users can insert their own clipboard items"
     ))
   );
 
-create policy "Users can update their own clipboard items"
+drop policy if exists "Users can update their own clipboard items" on clipboard_items;
+create policy "Owners and workspace members can update clips"
   on clipboard_items for update
-  using (auth.uid() = user_id);
+  using (
+    auth.uid() = user_id or
+    (workspace_id is not null and exists (
+      select 1 from workspaces w
+      where w.id = workspace_id and (w.owner_id = auth.uid() or w.id in (
+        select m.workspace_id from workspace_members m where m.user_email = auth.email()
+      ))
+    ))
+  )
+  with check (
+    auth.uid() = user_id or
+    (workspace_id is not null and exists (
+      select 1 from workspaces w
+      where w.id = workspace_id and (w.owner_id = auth.uid() or w.id in (
+        select m.workspace_id from workspace_members m where m.user_email = auth.email()
+      ))
+    ))
+  );
 
 create policy "Users can delete their own clipboard items"
   on clipboard_items for delete
@@ -128,6 +146,10 @@ create table if not exists shared_links (
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
+-- Lock shared_links down: all access MUST go through the security definer RPCs.
+-- Without RLS, anyone with the anon key could read tokens/hashes or insert rows directly.
+alter table shared_links enable row level security;
+
 -- Function to securely create a shared link with optional hashing & expiration
 create or replace function create_shared_link(
   item_id uuid,
@@ -180,21 +202,31 @@ begin
   -- Find the shared link
   select * into link_rec from shared_links where token = token_val;
   if not found then
-    raise exception 'Link not found or invalid';
+    raise exception 'Link not found or invalid' using errcode = 'KLIP404';
   end if;
-  
+
   -- Check expiration
   if link_rec.expires_at is not null and link_rec.expires_at < now() then
-    raise exception 'Link has expired';
+    raise exception 'Link has expired' using errcode = 'KLIP410';
   end if;
-  
+
   -- Check password if password_hash is set
   if link_rec.password_hash is not null then
     if password_val is null or link_rec.password_hash != crypt(password_val, link_rec.password_hash) then
-      raise exception 'Invalid password';
+      raise exception 'Invalid password' using errcode = 'KLIP401';
     end if;
   end if;
-  
+
+  -- Reject clips that have been soft-deleted, trashed, or expired since sharing
+  if not exists (
+    select 1 from clipboard_items c
+    where c.id = link_rec.clipboard_id
+      and c.is_deleted is distinct from true
+      and (c.expires_at is null or c.expires_at > now())
+  ) then
+    raise exception 'This clip is no longer available' using errcode = 'KLIP410G';
+  end if;
+
   -- Return the clipboard item
   return query
   select c.id, c.type, c.title, c.content, c.file_url, c.created_at
@@ -274,6 +306,9 @@ $$ language plpgsql;
 alter table clipboard_items add column if not exists file_size integer;
 alter table clipboard_items add column if not exists is_deleted boolean default false;
 alter table clipboard_items add column if not exists deleted_at timestamp with time zone;
+alter table clipboard_items add column if not exists is_pinned boolean default false;
+-- Per-row E2EE format version: 1 = legacy global-salt key, 2 = per-user-salt key
+alter table clipboard_items add column if not exists enc_version integer default 1;
 
 -- Create user_public_keys table
 create table if not exists user_public_keys (
@@ -316,19 +351,48 @@ create policy "Users can view their encrypted workspace keys"
   on workspace_vault_keys for select
   using (auth.uid() = user_id);
 
-create policy "Users can insert workspace keys"
+drop policy if exists "Users can insert workspace keys" on workspace_vault_keys;
+create policy "Workspace members can insert vault keys"
   on workspace_vault_keys for insert
-  with check (true);
+  with check (
+    exists (
+      select 1 from workspaces w
+      where w.id = workspace_id and (w.owner_id = auth.uid() or w.id in (
+        select m.workspace_id from workspace_members m where m.user_email = auth.email()
+      ))
+    )
+  );
 
 -- Apply private key storage migrations to existing tables
 alter table user_public_keys add column if not exists encrypted_private_key text;
 alter table user_public_keys add column if not exists private_key_iv text;
 alter table user_public_keys add column if not exists user_email text;
+-- Per-user PBKDF2 salt (Phase 1 of the static-salt fix). Null = legacy global salt.
+alter table user_public_keys add column if not exists kdf_salt text;
+alter table user_public_keys add column if not exists key_version integer default 1;
 
 -- Performance Indexes for fast history queries
 create index if not exists idx_clipboard_items_user_id on clipboard_items (user_id);
 create index if not exists idx_clipboard_items_workspace_id on clipboard_items (workspace_id);
+create index if not exists idx_clipboard_user_created on clipboard_items (user_id, created_at desc);
+create index if not exists idx_clipboard_workspace_created on clipboard_items (workspace_id, created_at desc);
 create index if not exists idx_clipboard_items_created_at on clipboard_items (created_at desc);
 create index if not exists idx_clipboard_items_is_deleted on clipboard_items (is_deleted);
+create index if not exists idx_shared_links_clipboard on shared_links (clipboard_id);
+
+-- Housekeeping: purge expired links, expired clips, and week-old trash.
+-- Schedule daily via Supabase Dashboard > Database > Cron (pg_cron), e.g.:
+--   select cron.schedule('klipport-cleanup', '0 3 * * *', $$ select cleanup_expired_data() $$);
+create or replace function cleanup_expired_data()
+returns void security definer as $$
+begin
+  delete from shared_links where expires_at is not null and expires_at < now();
+  update clipboard_items
+    set is_deleted = true, deleted_at = coalesce(deleted_at, now())
+    where expires_at is not null and expires_at < now() and is_deleted is distinct from true;
+  delete from clipboard_items
+    where is_deleted = true and deleted_at < now() - interval '7 days';
+end;
+$$ language plpgsql;
 
 

@@ -1,4 +1,4 @@
-const CACHE_NAME = "klipport-cache-v3";
+const CACHE_NAME = "klipport-cache-v4";
 const PRECACHE_ASSETS = [
   "/",
   "/index.html",
@@ -32,7 +32,7 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
-// Fetch Event - Cache-first with Network-fallback for assets, bypass dynamic APIs
+// Fetch Event - Network-first with cache fallback (fresh deploys win; offline still works)
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
 
@@ -47,32 +47,29 @@ self.addEventListener("fetch", (event) => {
   }
 
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-
-      return fetch(event.request)
-        .then((response) => {
-          // Verify response is valid to cache
-          if (!response || response.status !== 200 || response.type !== "basic") {
-            return response;
-          }
-
-          const responseToCache = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache);
-          });
-
+    fetch(event.request)
+      .then((response) => {
+        if (!response || response.status !== 200 || response.type !== "basic") {
           return response;
-        })
-        .catch(() => {
+        }
+
+        const responseToCache = response.clone();
+        caches.open(CACHE_NAME).then((cache) => {
+          cache.put(event.request, responseToCache);
+        });
+
+        return response;
+      })
+      .catch(() => {
+        return caches.match(event.request).then((cachedResponse) => {
+          if (cachedResponse) return cachedResponse;
+
           // Serve React SPA index.html on offline navigations
           if (event.request.mode === "navigate") {
             return caches.match("/index.html");
           }
         });
-    })
+      })
   );
 });
 

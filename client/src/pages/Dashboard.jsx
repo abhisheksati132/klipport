@@ -1,13 +1,13 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useMemo, useDeferredValue } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Command as Cmdk } from "cmdk";
-import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { toast } from "react-hot-toast";
 import { io } from "socket.io-client";
 import {
   deriveKey,
+  generateKdfSalt,
   encryptText,
   decryptText,
   encryptFile,
@@ -68,13 +68,30 @@ import {
   QrCode,
   Globe,
   Keyboard,
-  Tag,
   Sun,
-  Moon,
-  MoreHorizontal
+  Moon
 } from "lucide-react";
 
 
+
+const previewFetchedUrls = new Set();
+
+async function copyTextToClipboard(text) {  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    document.execCommand("copy");
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
 
 // --- Custom Code Highlighter ---
 function highlightCode(code) {
@@ -165,7 +182,6 @@ export default function Dashboard() {
   
   // Socket State
   const [socket, setSocket] = useState(null);
-  const [connected, setConnected] = useState(false);
 
   // Real-time Presence States
   const [presenceList, setPresenceList] = useState([]);
@@ -173,7 +189,7 @@ export default function Dashboard() {
   const typingTimerRef = useRef(null);
 
   // E2EE States
-  const [passphrase, setPassphrase] = useState("");
+  const [, setPassphrase] = useState("");
   const [encryptionKey, setEncryptionKey] = useState(null);
   const [showPassphraseModal, setShowPassphraseModal] = useState(false);
   const [passphraseInput, setPassphraseInput] = useState("");
@@ -435,7 +451,8 @@ export default function Dashboard() {
   };
 
   const fetchLinkPreview = async (itemId, url) => {
-    if (previews[itemId]) return;
+    if (previews[itemId] || previewFetchedUrls.has(url)) return;
+    previewFetchedUrls.add(url);
     try {
       const res = await fetch(`${backendUrl}/api/preview`, {
         method: "POST",
@@ -447,11 +464,12 @@ export default function Dashboard() {
         setPreviews((prev) => ({ ...prev, [itemId]: data }));
       }
     } catch (err) {
+      previewFetchedUrls.delete(url);
       console.error("Preview Scrape Error:", err);
     }
   };
 
-  const syncOfflineClips = async () => {
+  async function syncOfflineClips() {
     if (!navigator.onLine || !user) return;
 
     try {
@@ -487,6 +505,23 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      syncOfflineClips();
+    };
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    if (navigator.onLine) syncOfflineClips();
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [socket, activeWorkspace, user]);
+
+  useEffect(() => {
     let socketInstance = null;
 
     const initApp = async () => {
@@ -498,20 +533,45 @@ export default function Dashboard() {
         if (storedPassphrase) {
           setPassphrase(storedPassphrase);
           try {
-            const key = await deriveKey(storedPassphrase);
-            setEncryptionKey(key);
-            setUseE2EE(true);
-            
             // Decrypt local RSA asymmetric keys if they exist in DB
             const { data: pkData } = await supabase
               .from("user_public_keys")
               .select("*")
               .eq("user_id", session.user.id)
-              .single();
+              .maybeSingle();
+
+            const key = await deriveKey(storedPassphrase, pkData?.kdf_salt || null);
+            setEncryptionKey(key);
+            setUseE2EE(true);
 
             if (pkData) {
               const privKey = await decryptPrivateKey(pkData.encrypted_private_key, key);
               const pubKey = await importPublicKey(pkData.public_key_jwk);
+
+              // One-time upgrade: legacy global-salt registry gains a per-user salt.
+              // The wrapped RSA private key MUST be re-wrapped with the new key in the
+              // same pass, otherwise the next session could not unwrap it.
+              if (!pkData.kdf_salt) {
+                try {
+                  const upgradedSalt = generateKdfSalt();
+                  const upgradedKey = await deriveKey(storedPassphrase, upgradedSalt);
+                  const reWrapped = await encryptPrivateKey(privKey, upgradedKey);
+                  await supabase
+                    .from("user_public_keys")
+                    .update({
+                      kdf_salt: upgradedSalt,
+                      key_version: 2,
+                      encrypted_private_key: reWrapped.encryptedKey,
+                      private_key_iv: reWrapped.iv
+                    })
+                    .eq("user_id", session.user.id);
+                  legacyKeyRef.current = key;
+                  setEncryptionKey(upgradedKey);
+                } catch (upgradeErr) {
+                  console.error("Failed to persist KDF salt upgrade:", upgradeErr);
+                }
+              }
+
               setAsymmetricPrivateKey(privKey);
               setAsymmetricPublicKey(pubKey);
             }
@@ -527,10 +587,19 @@ export default function Dashboard() {
         socketInstance = io(backendUrl);
         setSocket(socketInstance);
 
-        socketInstance.on("connect", () => {
-          setConnected(true);
+        socketInstance.on("connect", async () => {
           socketInstance.emit("join-room", session.user.id);
-          
+
+          // Authenticate the socket when the server enforces auth
+          try {
+            const { data: { session: freshSession } } = await supabase.auth.getSession();
+            if (freshSession?.access_token) {
+              socketInstance.emit("auth", { token: freshSession.access_token });
+            }
+          } catch (err) {
+            console.error("Socket auth emit failed:", err);
+          }
+
           // Emit presence join details
           socketInstance.emit("presence-join", {
             user_id: session.user.id,
@@ -540,7 +609,6 @@ export default function Dashboard() {
         });
 
         socketInstance.on("disconnect", () => {
-          setConnected(false);
           setPresenceList([]);
         });
 
@@ -678,7 +746,16 @@ export default function Dashboard() {
 
           try {
             if (item.type === "text" || item.type === "code") {
-              const decryptedContent = await decryptText(item.content, currentDecryptionKey);
+              let decryptedContent;
+              try {
+                decryptedContent = await decryptText(item.content, currentDecryptionKey);
+              } catch {
+                // Legacy clip (v1 global-salt key): fall back, then upgrade in place
+                const legacyKey = !activeWorkspace ? await ensureLegacyKey() : null;
+                if (!legacyKey) throw new Error("no-legacy-key");
+                decryptedContent = await decryptText(item.content, legacyKey);
+                migrateLegacyItem(item, decryptedContent, currentDecryptionKey);
+              }
               const urlRegex = /(https?:\/\/[^\s]+)/g;
               const match = decryptedContent?.match(urlRegex);
               if (match) {
@@ -689,7 +766,7 @@ export default function Dashboard() {
               triggerFileDecryption(item, currentDecryptionKey);
               return { ...item, locked: false };
             }
-          } catch (err) {
+          } catch {
             return {
               ...item,
               content: "[Decryption Failed - Check Passphrase]",
@@ -714,21 +791,34 @@ export default function Dashboard() {
     processItems();
   }, [rawItems, encryptionKey, workspaceEncryptionKey, activeWorkspace]);
 
-  const triggerBrowserNotification = (title, body) => {
+  function triggerBrowserNotification(title, body) {
     if ("Notification" in window && Notification.permission === "granted") {
       new Notification(title, { body, icon: "/logo.svg" });
     }
   };
 
-  const triggerFileDecryption = async (item, keyToUse) => {
+  async function triggerFileDecryption(item, keyToUse) {
     if (decryptedFiles[item.id]) return;
 
     try {
       const response = await fetch(item.file_url);
       const encryptedBuffer = await response.arrayBuffer();
-      const decryptedBuffer = await decryptFile(encryptedBuffer, keyToUse);
-      
-      const blobType = item.type === "image" ? "image/*" : "application/octet-stream";
+      let decryptedBuffer;
+      try {
+        decryptedBuffer = await decryptFile(encryptedBuffer, keyToUse);
+      } catch {
+        // Legacy v1 file: decrypt with the legacy key (files are not re-upgraded in place)
+        if (!activeWorkspace) throw new Error("no-legacy-fallback");
+        const legacyKey = await ensureLegacyKey();
+        if (!legacyKey) throw new Error("no-legacy-key");
+        decryptedBuffer = await decryptFile(encryptedBuffer, legacyKey);
+      }
+
+      const ext = (item.file_url || "").split("?")[0].split(".").pop()?.toLowerCase();
+      const imageMimeTypes = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml", bmp: "image/bmp" };
+      const blobType = item.type === "image"
+        ? (imageMimeTypes[ext] || "image/png")
+        : "application/octet-stream";
       const blob = new Blob([decryptedBuffer], { type: blobType });
       const localUrl = URL.createObjectURL(blob);
       
@@ -757,7 +847,7 @@ export default function Dashboard() {
     const checkboxRegex = /-\s*\[([ xX])\]/g;
     let occurrences = 0;
     
-    const newContent = content.replace(checkboxRegex, (match, char) => {
+    const newContent = content.replace(checkboxRegex, (match) => {
       if (occurrences === index) {
         occurrences++;
         return currentState ? "- [ ]" : "- [x]";
@@ -777,9 +867,14 @@ export default function Dashboard() {
         finalContent = await encryptText(newContent, keyToUse);
       }
       
+      const updatePayload = { content: finalContent };
+      if (item.is_encrypted && !activeWorkspace) {
+        updatePayload.enc_version = 2;
+      }
+
       const { error } = await supabase
         .from("clipboard_items")
-        .update({ content: finalContent })
+        .update(updatePayload)
         .eq("id", item.id);
 
       if (error) throw error;
@@ -841,7 +936,7 @@ export default function Dashboard() {
     const tags = new Set();
     items.forEach((item) => {
       if (item.content && !item.locked) {
-        const hashtagRegex = /#([a-zA-Z0-9_\-]+)/g;
+        const hashtagRegex = /#([a-zA-Z0-9_-]+)/g;
         const matches = item.content.match(hashtagRegex);
         if (matches) {
           matches.forEach((t) => tags.add(t));
@@ -851,7 +946,7 @@ export default function Dashboard() {
     return Array.from(tags);
   };
 
-  const fetchItems = async (userId, targetWorkspace = activeWorkspace) => {
+  async function fetchItems(userId, targetWorkspace = activeWorkspace) {
     setLoading(true);
     let query = supabase
       .from("clipboard_items")
@@ -890,7 +985,7 @@ export default function Dashboard() {
     setLoading(false);
   };
 
-  const fetchWorkspaces = async () => {
+  async function fetchWorkspaces() {
     const { data, error } = await supabase
       .from("workspaces")
       .select("*")
@@ -903,7 +998,7 @@ export default function Dashboard() {
     }
   };
 
-  const fetchCliTokens = async () => {
+  async function fetchCliTokens() {
     const { data, error } = await supabase
       .from("cli_tokens")
       .select("*")
@@ -964,7 +1059,7 @@ export default function Dashboard() {
 
     setWorkspaceSubmitting(true);
     try {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from("workspaces")
         .insert([{ name: newWorkspaceName.trim(), owner_id: user.id }])
         .select();
@@ -1058,7 +1153,7 @@ export default function Dashboard() {
 
   const handleCopy = async (item) => {
     try {
-      await navigator.clipboard.writeText(item.content);
+      await copyTextToClipboard(item.content);
     } catch {
       toast.error("Clipboard access denied. Please copy manually.");
       return;
@@ -1070,6 +1165,7 @@ export default function Dashboard() {
     if (item.self_destruct && !item.isOffline) {
       const { error } = await supabase.from("clipboard_items").delete().eq("id", item.id);
       if (!error) {
+        await purgeStorageFile(item);
         toast.error("Clip self-destructed permanently!", { icon: "🔥" });
         setRawItems((prev) => prev.filter((i) => i.id !== item.id));
       }
@@ -1078,9 +1174,50 @@ export default function Dashboard() {
     }
   };
 
+  const purgeStorageFile = async (item) => {
+    if (!item.file_url || item.isOffline) return;
+    try {
+      const marker = "/object/public/clip-files/";
+      const idx = item.file_url.indexOf(marker);
+      if (idx === -1) return;
+      const filePath = item.file_url.substring(idx + marker.length).split("?")[0];
+      if (filePath) await supabase.storage.from("clip-files").remove([filePath]);
+    } catch (err) {
+      console.error("Failed to remove storage file:", err);
+    }
+  };
+
+  const legacyKeyRef = useRef(null);
+  const ensureLegacyKey = async () => {
+    const storedPassphrase = sessionStorage.getItem("klipport_passphrase");
+    if (!storedPassphrase) return null;
+    if (!legacyKeyRef.current) {
+      legacyKeyRef.current = await deriveKey(storedPassphrase, null);
+    }
+    return legacyKeyRef.current;
+  };
+
+  const migrateLegacyItem = async (item, plaintext, keyToUse) => {
+    if (item.isOffline) return;
+    try {
+      const ciphertext = await encryptText(plaintext, keyToUse);
+      const { error } = await supabase
+        .from("clipboard_items")
+        .update({ content: ciphertext, enc_version: 2 })
+        .eq("id", item.id);
+      if (error) throw error;
+      setRawItems((prev) => prev.map((i) => (
+        i.id === item.id ? { ...i, content: ciphertext, enc_version: 2 } : i
+      )));
+    } catch (err) {
+      console.error(`Failed to migrate item ${item.id} to v2 encryption:`, err);
+    }
+  };
+
   const handleDelete = async (id) => {
     // If we are in the trash tab, delete permanently!
     if (activeTab === "trash") {
+      const item = rawItems.find((i) => i.id === id);
       const { error } = await supabase
         .from("clipboard_items")
         .delete()
@@ -1089,6 +1226,7 @@ export default function Dashboard() {
       if (error) {
         toast.error("Failed to purge item: " + error.message);
       } else {
+        await purgeStorageFile(item);
         toast.success("Permanently purged clip");
         setRawItems((prev) => prev.filter((item) => item.id !== id));
       }
@@ -1178,19 +1316,35 @@ export default function Dashboard() {
     }
 
     setGeneratingLink(true);
-    const randomBytes = new Uint8Array(12);
-    window.crypto.getRandomValues(randomBytes);
-    const token = Array.from(randomBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+
+    const makeToken = () => {
+      const randomBytes = new Uint8Array(12);
+      window.crypto.getRandomValues(randomBytes);
+      return Array.from(randomBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    };
+
+    let token = makeToken();
 
     try {
-      const { error } = await supabase.rpc("create_shared_link", {
-        item_id: shareItem.id,
-        token_val: token,
-        password_val: sharePassword,
-        expires_in_seconds: parseInt(shareExpiration)
-      });
+      let attempts = 0;
+      for (;;) {
+        const { error } = await supabase.rpc("create_shared_link", {
+          item_id: shareItem.id,
+          token_val: token,
+          password_val: sharePassword,
+          expires_in_seconds: parseInt(shareExpiration)
+        });
 
-      if (error) throw error;
+        if (!error) break;
+
+        // Token collision (23505 = unique_violation): regenerate and retry once
+        if (error.code === "23505" && attempts < 1) {
+          attempts++;
+          token = makeToken();
+          continue;
+        }
+        throw error;
+      }
 
       const link = `${window.location.origin}/share/${token}`;
       setGeneratedLink(link);
@@ -1210,7 +1364,16 @@ export default function Dashboard() {
     }
 
     try {
-      const key = await deriveKey(passphraseInput);
+      // Fetch existing key registry first so we can reuse the stored per-user salt
+      const { data: pkData } = await supabase
+        .from("user_public_keys")
+        .select("*")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      const isNewKeyRegistry = !pkData;
+      const kdfSalt = isNewKeyRegistry ? generateKdfSalt() : (pkData.kdf_salt || null);
+      const key = await deriveKey(passphraseInput, kdfSalt);
       setEncryptionKey(key);
       setPassphrase(passphraseInput);
       sessionStorage.setItem("klipport_passphrase", passphraseInput);
@@ -1219,13 +1382,7 @@ export default function Dashboard() {
       toast.success("E2EE Passphrase Set Successfully!", { icon: "🔒" });
 
       // Generate or retrieve public/private asymmetric keys registry
-      const { data: pkData } = await supabase
-        .from("user_public_keys")
-        .select("*")
-        .eq("user_id", user.id)
-        .single();
-
-      if (!pkData) {
+      if (isNewKeyRegistry) {
         // Generate new keypair
         const pair = await generateAsymmetricKeyPair();
         const jwk = await exportPublicKey(pair.publicKey);
@@ -1238,7 +1395,9 @@ export default function Dashboard() {
             user_email: user.email.toLowerCase(),
             public_key_jwk: jwk,
             encrypted_private_key: encryptedPriv.encryptedKey,
-            private_key_iv: encryptedPriv.iv
+            private_key_iv: encryptedPriv.iv,
+            kdf_salt: kdfSalt,
+            key_version: 2
           }]);
 
         setAsymmetricPrivateKey(pair.privateKey);
@@ -1246,6 +1405,29 @@ export default function Dashboard() {
       } else {
         const privKey = await decryptPrivateKey(pkData.encrypted_private_key, key);
         const pubKey = await importPublicKey(pkData.public_key_jwk);
+
+        // One-time upgrade: wrap the RSA private key with a per-user-salt key
+        if (!pkData.kdf_salt) {
+          try {
+            const upgradedSalt = generateKdfSalt();
+            const upgradedKey = await deriveKey(passphraseInput, upgradedSalt);
+            const reWrapped = await encryptPrivateKey(privKey, upgradedKey);
+            await supabase
+              .from("user_public_keys")
+              .update({
+                kdf_salt: upgradedSalt,
+                key_version: 2,
+                encrypted_private_key: reWrapped.encryptedKey,
+                private_key_iv: reWrapped.iv
+              })
+              .eq("user_id", user.id);
+            legacyKeyRef.current = key;
+            setEncryptionKey(upgradedKey);
+          } catch (upgradeErr) {
+            console.error("Failed to persist KDF salt upgrade:", upgradeErr);
+          }
+        }
+
         setAsymmetricPrivateKey(privKey);
         setAsymmetricPublicKey(pubKey);
       }
@@ -1383,6 +1565,7 @@ export default function Dashboard() {
         content: contentVal,
         file_url: fileUrlVal,
         is_encrypted: useE2EE,
+        enc_version: useE2EE && !activeWorkspace ? 2 : 1,
         workspace_id: activeWorkspace ? activeWorkspace.id : null,
         self_destruct: selfDestruct,
         expires_at: finalExpiresAt,
@@ -1499,6 +1682,7 @@ export default function Dashboard() {
         content: contentVal,
         file_url: "",
         is_encrypted: useE2EE,
+        enc_version: useE2EE && !activeWorkspace ? 2 : 1,
         workspace_id: activeWorkspace ? activeWorkspace.id : null,
         self_destruct: false,
         expires_at: null,
@@ -1613,15 +1797,15 @@ export default function Dashboard() {
     );
     if (textItems.length === 0) { toast.error("No copyable text items selected."); return; }
     const combined = textItems.map(i => i.content).join("\n\n---\n\n");
-    navigator.clipboard.writeText(combined).then(() => {
+    copyTextToClipboard(combined).then(() => {
       toast.success(`Copied ${textItems.length} clip${textItems.length > 1 ? "s" : ""}!`, { icon: "📋" });
       setSelectedClips(new Set());
     });
   };
 
-  const filteredItems = items
+  const deferredSearch = useDeferredValue(searchQuery);
+  const filteredItems = useMemo(() => items
     .filter((item) => {
-      // Filter out deleted items unless activeTab is "trash"
       if (activeTab === "trash") return item.is_deleted === true;
       if (item.is_deleted) return false;
 
@@ -1636,7 +1820,7 @@ export default function Dashboard() {
       return item.content && !item.locked && item.content.toLowerCase().includes(selectedTag.toLowerCase());
     })
     .filter((item) => {
-      const search = searchQuery.toLowerCase();
+      const search = deferredSearch.toLowerCase();
       return (
         item.title?.toLowerCase().includes(search) ||
         (item.content && !item.locked && item.content.toLowerCase().includes(search))
@@ -1647,7 +1831,7 @@ export default function Dashboard() {
       if (a.is_pinned && !b.is_pinned) return -1;
       if (!a.is_pinned && b.is_pinned) return 1;
       return 0;
-    });
+    }), [items, activeTab, selectedTag, deferredSearch]);
 
   const getIcon = (type, locked) => {
     if (locked) return <Lock className="h-5 w-5 text-red-400" />;
@@ -1929,7 +2113,7 @@ export default function Dashboard() {
             {workspaces.length > 0 && (
               <Cmdk.Group heading="Workspaces" cmdk-group-heading="">
                 {workspaces.map(w => (
-                  <Cmdk.Item key={w.id} cmdk-item="" onSelect={() => { setActiveWorkspaceId(w.id); setCmdOpen(false); }}>
+                  <Cmdk.Item key={w.id} cmdk-item="" onSelect={() => { handleWorkspaceChange(w); setCmdOpen(false); }}>
                     <Briefcase /> Switch to {w.name}
                   </Cmdk.Item>
                 ))}
@@ -1953,7 +2137,7 @@ export default function Dashboard() {
             >
               <X className="h-5 w-5" />
             </button>
-            <MobileDrawerContent />
+            {MobileDrawerContent()}
           </div>
         </div>
       )}
@@ -2698,7 +2882,7 @@ export default function Dashboard() {
                   </span>
                   <button
                     onClick={() => {
-                      navigator.clipboard.writeText(generatedLink);
+                      copyTextToClipboard(generatedLink);
                       toast.success("Copied share link!");
                     }}
                     className="p-2 rounded-lg bg-white/5 hover:bg-white/10 hover:text-brand-500 transition-all shrink-0 cursor-pointer"
@@ -2814,7 +2998,7 @@ export default function Dashboard() {
                     <button
                       type="button"
                       onClick={() => {
-                        navigator.clipboard.writeText(generatedTokenVal);
+                        copyTextToClipboard(generatedTokenVal);
                         toast.success("Token copied!");
                       }}
                       className="p-1 rounded bg-white/5 hover:bg-white/10 hover:text-emerald-400"
@@ -2946,8 +3130,11 @@ export default function Dashboard() {
             <h3 className="text-xl font-bold mb-1 flex items-center gap-2" style={{ color: "var(--text1)" }}>
               <Sparkles className="h-5 w-5 text-brand-500 animate-pulse" /> AI Clipboard Copilot
             </h3>
-            <p className="text-xs mb-6" style={{ color: "var(--text2)" }}>
+            <p className="text-xs mb-3" style={{ color: "var(--text2)" }}>
               Transform, analyze, and sync your clipboard content using Gemini AI.
+            </p>
+            <p className="text-[10px] mb-6 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-500 font-medium">
+              Privacy note: using these actions sends this clip's content to Google's Gemini API for processing. Do not use on sensitive clips.
             </p>
 
             <div className="space-y-4">
@@ -3089,7 +3276,7 @@ export default function Dashboard() {
                       <div className="flex gap-2 justify-end pt-2 border-t border-white/5">
                         <button
                           onClick={() => {
-                            navigator.clipboard.writeText(aiResponse);
+                            copyTextToClipboard(aiResponse);
                             toast.success("AI output copied!");
                           }}
                           className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-[10px] font-semibold text-gray-300 hover:text-white transition-all cursor-pointer"
