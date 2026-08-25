@@ -23,6 +23,19 @@ app.use("/api", (req, res, next) => {
   next();
 });
 
+app.post("/api/client-errors", rateLimit, (req, res) => {
+  const { message, stack, url, userAgent, context, ts } = req.body || {};
+  console.error("[client-error]", JSON.stringify({
+    message: String(message || "unknown").slice(0, 2000),
+    url: String(url || "").slice(0, 500),
+    userAgent: String(userAgent || "").slice(0, 300),
+    context,
+    ts,
+    stack: String(stack || "").split("\n").slice(0, 10).join("\n")
+  }));
+  res.status(204).end();
+});
+
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX = 30;
 const rateLimitBuckets = new Map();

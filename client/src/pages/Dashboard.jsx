@@ -76,6 +76,13 @@ import {
 
 const previewFetchedUrls = new Set();
 
+function generateRecoveryPassphrase() {
+  const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  const rand = window.crypto.getRandomValues(new Uint8Array(20));
+  const chars = Array.from(rand).map((b) => alphabet[b % alphabet.length]);
+  return [chars.slice(0, 5).join(""), chars.slice(5, 10).join(""), chars.slice(10, 15).join(""), chars.slice(15, 20).join("")].join("-");
+}
+
 async function copyTextToClipboard(text) {  if (navigator.clipboard && window.isSecureContext) {
     await navigator.clipboard.writeText(text);
     return;
@@ -187,6 +194,9 @@ export default function Dashboard() {
   const [presenceList, setPresenceList] = useState([]);
   const [typingStatus, setTypingStatus] = useState("");
   const typingTimerRef = useRef(null);
+  const hasSeededRef = useRef(false);
+
+  const [recoveryPassphrase, setRecoveryPassphrase] = useState(null);
 
   // E2EE States
   const [, setPassphrase] = useState("");
@@ -578,6 +588,58 @@ export default function Dashboard() {
           } catch (err) {
             console.error("Failed to auto-derive key:", err);
           }
+        } else {
+          // E2EE by default: first-time visitors get keys provisioned automatically
+          try {
+            const { data: pkData } = await supabase
+              .from("user_public_keys")
+              .select("user_id")
+              .eq("user_id", session.user.id)
+              .maybeSingle();
+
+            if (!pkData) {
+              const autoPassphrase = generateRecoveryPassphrase();
+              const salt = generateKdfSalt();
+              const key = await deriveKey(autoPassphrase, salt);
+              const pair = await generateAsymmetricKeyPair();
+              const jwk = await exportPublicKey(pair.publicKey);
+              const wrapped = await encryptPrivateKey(pair.privateKey, key);
+
+              await supabase.from("user_public_keys").insert([{
+                user_id: session.user.id,
+                user_email: (session.user.email || "").toLowerCase(),
+                public_key_jwk: jwk,
+                encrypted_private_key: wrapped.encryptedKey,
+                private_key_iv: wrapped.iv,
+                kdf_salt: salt,
+                key_version: 2
+              }]);
+
+              sessionStorage.setItem("klipport_passphrase", autoPassphrase);
+              setPassphrase(autoPassphrase);
+              setEncryptionKey(key);
+              setUseE2EE(true);
+              setAsymmetricPrivateKey(pair.privateKey);
+              setAsymmetricPublicKey(pair.publicKey);
+              setRecoveryPassphrase(autoPassphrase);
+            }
+          } catch (err) {
+            console.error("E2EE auto-provision failed:", err);
+          }
+        }
+
+        // Local-first: hydrate from the IndexedDB cache instantly; the network
+        // refresh below silently replaces this once fresh rows arrive.
+        try {
+          const cached = await getCachedHistoryClips();
+          const personalCached = cached.filter((c) => !c.workspace_id && !c.is_deleted);
+          if (personalCached.length > 0) {
+            hasSeededRef.current = true;
+            setRawItems(personalCached);
+            setLoading(false);
+          }
+        } catch (seedErr) {
+          console.error("Cache hydration failed:", seedErr);
         }
 
         fetchItems(session.user.id);
@@ -947,7 +1009,7 @@ export default function Dashboard() {
   };
 
   async function fetchItems(userId, targetWorkspace = activeWorkspace) {
-    setLoading(true);
+    if (!hasSeededRef.current || targetWorkspace) setLoading(true);
     let query = supabase
       .from("clipboard_items")
       .select("*")
@@ -2899,6 +2961,42 @@ export default function Dashboard() {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Recovery Passphrase Modal (shown once after E2EE auto-provisioning) */}
+      {recoveryPassphrase && (
+        <div className="a-modal-overlay">
+          <div className="a-modal-panel w-full max-w-md">
+            <h3 className="text-xl font-bold mb-1 flex items-center gap-2" style={{ color: "var(--text1)" }}>
+              <ShieldCheck className="h-5 w-5 text-emerald-400" /> Encryption Enabled
+            </h3>
+            <p className="text-xs mb-4 font-sans" style={{ color: "var(--text2)" }}>
+              Klipport encrypted your clipboard by default. This recovery passphrase is the <strong>only</strong> way to decrypt your clips on a new device. Save it somewhere safe — it is never sent to our servers.
+            </p>
+
+            <div className="bg-black/30 border border-white/10 rounded-xl p-4 mb-4 text-center">
+              <span className="font-mono text-lg font-bold tracking-wider" style={{ color: "var(--text1)" }}>{recoveryPassphrase}</span>
+            </div>
+
+            <div className="space-y-2">
+              <button
+                onClick={() => {
+                  copyTextToClipboard(recoveryPassphrase);
+                  toast.success("Recovery passphrase copied!");
+                }}
+                className="w-full rounded-xl bg-brand-600 py-2.5 text-xs font-semibold text-white hover:bg-brand-500 transition-all cursor-pointer"
+              >
+                Copy Recovery Passphrase
+              </button>
+              <button
+                onClick={() => setRecoveryPassphrase(null)}
+                className="w-full rounded-xl bg-white/5 border border-white/10 py-2.5 text-xs font-semibold text-gray-300 hover:bg-white/10 transition-all cursor-pointer"
+              >
+                I&apos;ve saved it securely
+              </button>
+            </div>
           </div>
         </div>
       )}

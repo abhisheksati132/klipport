@@ -1,5 +1,6 @@
 import React from "react";
 import { Clipboard, RotateCcw, Home } from "lucide-react";
+import { reportError } from "../utils/errorReporter";
 
 export class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -13,6 +14,7 @@ export class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, errorInfo) {
     console.error("Uncaught application error:", error, errorInfo);
+    reportError(error, { componentStack: String(errorInfo?.componentStack || "").slice(0, 4000), boundary: true });
   }
 
   handleReload = () => {

@@ -2,10 +2,19 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
+import { reportError } from './utils/errorReporter'
 
 // Auto-reload on stale bundle/chunk error after deployments
 window.addEventListener('vite:preloadError', () => {
   window.location.reload();
+});
+
+// Global crash reporting (uncaught errors + unhandled promise rejections)
+window.addEventListener('error', (event) => {
+  reportError(event.error || event.message, { type: 'error' });
+});
+window.addEventListener('unhandledrejection', (event) => {
+  reportError(event.reason, { type: 'unhandledrejection' });
 });
 
 createRoot(document.getElementById('root')).render(
